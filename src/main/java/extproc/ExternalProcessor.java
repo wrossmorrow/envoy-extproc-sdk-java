@@ -1,6 +1,5 @@
 package extproc;
 
-// import io.grpc.stub.ServerCallStreamObserver;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.service.ext_proc.v3.ExternalProcessorGrpc;
@@ -82,15 +81,15 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       public void onError(Throwable err) {
         if (err instanceof StatusRuntimeException) {
           StatusRuntimeException sre = (StatusRuntimeException) err;
-          ;
           if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
+            logger.fine("Processing stream cancelled");
             responseObserver.onCompleted();
           } else {
-            System.out.println("Encountered error in processing: " + err);
+            logger.severe("Encountered error in processing: " + err);
             responseObserver.onError(sre);
           }
         } else {
-          System.out.println("Encountered error in processing: " + err);
+          logger.severe("Encountered error in processing: " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
