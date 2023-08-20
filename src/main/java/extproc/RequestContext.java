@@ -67,7 +67,6 @@ public class RequestContext {
     public Duration getDuration() { return duration; }
 
     public Boolean streamComplete() { return endOfStream; }
-    public void streamIsComplete() { endOfStream = true; } // public, but don't call
 
     public String getProcessorId() { return processorId; }
     public void setProcessorId(String processorId) {
@@ -150,7 +149,6 @@ public class RequestContext {
     }
     
     public ProcessingResponse getResponse(RequestCase phase) {
-        duration = Duration.between(started, Instant.now());
 
         if (cancelled) {
             return ProcessingResponse.newBuilder()

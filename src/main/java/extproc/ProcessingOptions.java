@@ -6,11 +6,10 @@ public class ProcessingOptions {
     public Boolean updateExtProcHeader;
     public Boolean updateDurationHeader;
 
-    // TODO: properties file
     public ProcessingOptions() {
-        logStream = false;
-        logPhases = true;
-        updateExtProcHeader = false;
-        updateDurationHeader = false;
+        logStream = Boolean.parseBoolean(System.getProperty("extproc.log.stream", "false"));
+        logPhases = Boolean.parseBoolean(System.getProperty("extproc.log.phases", "false"));
+        updateExtProcHeader = Boolean.parseBoolean(System.getProperty("extproc.headers.processors", "false"));
+        updateDurationHeader = Boolean.parseBoolean(System.getProperty("extproc.headers.duration", "false"));
     }
 }

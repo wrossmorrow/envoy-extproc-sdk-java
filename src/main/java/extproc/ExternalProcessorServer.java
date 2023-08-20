@@ -6,16 +6,11 @@ import io.grpc.Server;
 import io.grpc.ServerBuilder;
 import io.grpc.protobuf.services.ProtoReflectionService;
 import java.io.IOException;
-import java.lang.reflect.Array;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Function;
-
-import extproc.processors.NoOpRequestProcessor;
-import extproc.processors.TrivialRequestProcessor;
-import extproc.processors.TimerRequestProcessor;
 
 /**
  * Server that manages startup/shutdown of an {@code ExternalProcessor} server.
@@ -28,6 +23,7 @@ public class ExternalProcessorServer {
   private int port = 50051;
   private int gracePeriodSeconds = 30;
   protected List<Function<Void, Void>> hooks = new ArrayList<Function<Void, Void>>();
+  protected RequestProcessor processor;
 
   public ExternalProcessorServer builder() {
     return this.builder(port);
@@ -60,13 +56,13 @@ public class ExternalProcessorServer {
       @Override
       public void run() {
         // Use stderr here since the logger may have been reset by its JVM shutdown hook.
-        System.err.println("*** shutting down gRPC server since JVM is shutting down");
+        System.err.println("shutting down gRPC server since JVM is shutting down");
         try {
           ExternalProcessorServer.this.stop();
         } catch (InterruptedException e) {
           e.printStackTrace(System.err);
         }
-        System.err.println("*** server shut down");
+        System.err.println("server shut down");
       }
     });
     return this;
@@ -91,15 +87,21 @@ public class ExternalProcessorServer {
   }
 
   /**
-   * Main launches the server from the command line.
+   * Instantiate a RequestProcessor from the extproc.processor_class property.
    */
-  public static void main(String[] args) throws IOException, InterruptedException {
-    final ExternalProcessorServer server = new ExternalProcessorServer()
+  private static RequestProcessor getProcessorFromProperties() throws Exception {
+    String processor = System.getProperty("extproc.class", "extproc.processors.NoOpRequestProcessor");
+    return (RequestProcessor)Class.forName(processor).getConstructor().newInstance();
+  }
+
+  /**
+   * Launches the server from the command line.
+   */
+  public static void main(String[] args) throws Exception {
+    new ExternalProcessorServer()
       .builder(50051)
-      .addRequestProcessor(new NoOpRequestProcessor())
-      .addRequestProcessor(new TrivialRequestProcessor())
-      .addRequestProcessor(new TimerRequestProcessor())
-      .start();
-    server.blockUntilShutdown();
+      .addRequestProcessor(getProcessorFromProperties())
+      .start()
+      .blockUntilShutdown();
   }
 }

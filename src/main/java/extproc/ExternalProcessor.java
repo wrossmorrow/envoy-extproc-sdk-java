@@ -1,9 +1,14 @@
 package extproc;
 
+// import io.grpc.stub.ServerCallStreamObserver;
 import io.grpc.stub.StreamObserver;
+import io.grpc.Status;
+import io.grpc.StatusRuntimeException;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.logging.Logger;
+import java.time.Duration;
+import java.time.Instant;
 
 import build.buf.gen.envoy.service.ext_proc.v3.ExternalProcessorGrpc;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest;
@@ -12,8 +17,6 @@ import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 
-import extproc.processors.NoOpRequestProcessor;
-
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
     private static final Logger logger = Logger.getLogger(ExternalProcessor.class.getName());
 
@@ -21,13 +24,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     protected String procname;
     protected ProcessingOptions options;
 
-    public ExternalProcessor() {
-        processor = new NoOpRequestProcessor();
-        defineOptions();
-    }
-
     public ExternalProcessor(RequestProcessor processor) {
         this.processor = processor;
+        logger.info("Setting up processor " + processor.getName());
         defineOptions();
     }
 
@@ -49,7 +48,19 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
   
         @Override
         public void onError(Throwable err) {
-          System.out.println("Encountered error in processing");
+          if (err instanceof StatusRuntimeException) {
+            StatusRuntimeException sre = (StatusRuntimeException) err;;
+            if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
+              responseObserver.onCompleted();
+            } else {
+              System.out.println("Encountered error in processing: " + err);
+              responseObserver.onError(sre);
+            }
+          } else {
+            System.out.println("Encountered error in processing: " + err);
+            StatusRuntimeException sre = Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
+            responseObserver.onError(sre);
+          }
         }
   
         @Override
@@ -63,9 +74,10 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     protected ProcessingResponse processPhase(ProcessingRequest pr, RequestContext ctx) {
 
       RequestCase phase = pr.getRequestCase();
+      final Instant phaseStarted = Instant.now();
 
       if (phase != RequestCase.REQUEST_HEADERS) {
-        ctx.reset(); // starts duration timer
+        ctx.reset();
       }
 
       if (options.logPhases) {
@@ -78,7 +90,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           ctx.initialize(requestHeaders);
           addBoilerplateHeaders(ctx);
           if (pr.getRequestHeaders().getEndOfStream()) {
-            ctx.streamIsComplete();
+            ctx.endOfStream = true;
           }
           processor.processRequestHeaders(ctx, requestHeaders);
           break;
@@ -95,7 +107,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           Map<String, String> responseHeaders = plainMapFromProtoHeaders(pr.getResponseHeaders().getHeaders());
           addBoilerplateHeaders(ctx);
           if (pr.getRequestHeaders().getEndOfStream()) {
-            ctx.streamIsComplete();
+            ctx.endOfStream = true;
           }
           processor.processResponseHeaders(ctx, responseHeaders);
           break;
@@ -112,13 +124,14 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           throw new RuntimeException("Unknown request type");
       }
 
+      ctx.duration.plus(Duration.between(phaseStarted, Instant.now()));
       return ctx.getResponse(phase); // stops duration timer
 
     }
 
     protected void addBoilerplateHeaders(RequestContext ctx) {
       if (options.updateExtProcHeader) {
-        ctx.appendHeader("x-extproc-seen", procname);
+        ctx.appendHeader("x-extproc-processors", procname);
       }
       if (options.updateDurationHeader) {
         ctx.overwriteHeader("x-extproc-duration", ctx.getDuration().toString());

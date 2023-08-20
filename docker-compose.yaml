@@ -32,16 +32,28 @@ services:
       dockerfile: Dockerfile
     ports:
       - '50051:50051'
-  # trivial:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - trivial
-  # timer:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - timer
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.headers.processors=true
+      - -Dextproc.class=extproc.processors.NoOpRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+  trivial:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.headers.processors=true
+      - -Dextproc.class=extproc.processors.TrivialRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+  timer:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.headers.processors=true
+      - -Dextproc.class=extproc.processors.TimerRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
   # data:
   #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
   #   command:
