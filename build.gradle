@@ -1,0 +1,85 @@
+plugins {
+    id 'java'
+    id 'application'
+    id 'com.google.protobuf' version '0.9.1'
+    id 'idea'
+}
+
+repositories {
+    maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+    maven { url 'https://buf.build/gen/maven' }
+    mavenCentral()
+    mavenLocal()
+}
+
+def grpcVersion = '1.57.2'
+def protobufVersion = '3.22.3'
+def protocVersion = protobufVersion
+
+dependencies {
+
+    // implementation 'com.google.guava:guava:31.1-jre'
+
+    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+    implementation "io.grpc:grpc-services:${grpcVersion}"
+    implementation "io.grpc:grpc-stub:${grpcVersion}"
+    compileOnly "org.apache.tomcat:annotations-api:6.0.53"
+
+    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+
+    implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.57.2.1.20230817201313.e75e636e2bd4'
+    implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:24.0.0.1.20230817201313.e75e636e2bd4'
+    implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
+
+    runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
+    
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
+
+    testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+    testImplementation "junit:junit:4.13.2"
+    testImplementation "org.mockito:mockito-core:3.4.0"
+
+}
+
+application {
+    mainClassName = "extproc.ExternalProcessorServer"
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
+
+test {
+  useJUnit()
+  useJUnitPlatform()
+
+  testLogging.showStandardStreams = true
+
+  beforeTest { descriptor ->
+     logger.lifecycle("Running test: " + descriptor)
+  }
+
+  failFast = true
+
+  onOutput { descriptor, event ->
+     logger.lifecycle("Test: " + descriptor + " produced standard out/err: " + event.message )
+  }
+}
+
+tasks.withType(Zip) {
+   duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+jar {
+  manifest {
+    attributes(
+      'Main-Class': mainClassName
+    )
+  }
+  from {
+    configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
+  }
+}

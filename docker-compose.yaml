@@ -1,0 +1,69 @@
+services:
+
+  # envoy, configured as with envoy.yaml to use extprocs
+  envoy:
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}
+    ports:
+      - "8080:8000"
+      - "9901:9901"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    # turn on logging as needed; can be _very_ noisy otherwise esp. with trace
+    logging:
+      driver: none
+
+  # upstream "echo" server
+  upstream:
+    hostname: upstream
+    image: echo-server:${IMAGE_TAG:-compose}
+    build:
+      context: _mocks/echo
+      dockerfile: Dockerfile
+    ports:
+      - '8000:8000'
+    environment:
+      - LOG_LEVEL=info
+
+  # extprocs
+  noop:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - '50051:50051'
+  # trivial:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - trivial
+  # timer:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - timer
+  # data:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - data
+  # digest:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - digest
+  # dedup:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - dedup
+  # masker:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - masker
+  # echo:
+  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   command:
+  #     - /extproc
+  #     - echo
