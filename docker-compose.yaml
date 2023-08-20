@@ -74,8 +74,11 @@ services:
   #   command:
   #     - /extproc
   #     - masker
-  # echo:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - echo
+  echo:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.headers.processors=true
+      - -Dextproc.class=extproc.processors.EchoRequestProcessor
+      - -jar
+      - /extproc/extproc.jar

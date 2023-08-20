@@ -50,6 +50,7 @@ This SDK uses an interface
 public interface RequestProcessor {
     public String getName();
     public ProcessingOptions getOptions();
+    public void setHealthManager(RequestProcessorHealthManager health);
     public void processRequestHeaders(RequestContext ctx, Map<String, String> headers);
     public void processRequestBody(RequestContext ctx, String body);
     public void processRequestTrailers(RequestContext ctx, Map<String, String> trailers);
@@ -58,11 +59,23 @@ public interface RequestProcessor {
     public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers);
 }
 ```
-and a context object `RequestContext` that work together to allow processing of requests and responses. The `ExternalProcessorServer` (or, really, `ExternalProcessor`) handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` implementation method. The header and body messages can be responded to with either a "common" or "immediate" response object (or error); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important. 
+and a context object `RequestContext` that work together to allow processing of requests and responses. The `ExternalProcessorServer` (or, really, `ExternalProcessor`) handles the gRPC streaming and shared context, parsing the processing phase in the gRPC stream and calling the right `RequestProcessor` implementation method. The header and body messages can be responded to with either a "common" or "immediate" response object (or); the trailer methods can only mutate headers. But that should be opaque to the user of this SDK; the `RequestContext` and `RequestProcessor` are more important. 
+
+### Health Checking
+
+Using `setHealthManager` your processor will get passed a class implementing
+```java
+public interface RequestProcessorHealthManager {
+  public void serving();
+  public void notServing();
+  public void failed();
+}
+```
+to enable gRPC health checks. Call `failed` if you encounter an unrecoverable, otherwise use `notServing` and `serving` for ephemeral issues (say, loss of connection to a datastore like `redis`). How you manage health checks is otherwise entirely up to you. The default state is `SERVING`, and you may very well need to do nothing. 
 
 ### Context Data
 
-The `RequestContext` is initialized with request data when request headers are received, implying that the `envoy` configuration should always have `processing_mode.request_header_mode: SEND`. Basic request data (method, path etc) are only available in this phase. As shown in the spec above, this data includes
+The `RequestContext` is initialized with some request data when request headers are received, implying that the `envoy` configuration should _always_ have `processing_mode.request_header_mode: SEND`. Basic request-identifying data (method, path etc) are _only_ available in this phase. As shown in the spec above, this data includes
 * the HTTP `Scheme`
 * the `Authority` (host)
 * the HTTP `Method`
@@ -75,6 +88,8 @@ The `RequestContext` is initialized with request data when request headers are r
 
 This context is carried through every request phase. In particular, your implementation can store data in memory related to particular requests keyed on the request ID or via another strategy of your choosing. You can also supply your own ID, which can be stored in the context, if that suits your needs better, with `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 
+Your `RequestProcessor` implementation can use whatever storage strategy for your own contextual data you want, but you should make sure to use `requestId` (or your own ID) as a key in case your external processor sees concurrent requests. 
+
 ### Forming Responses
 
 We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
@@ -82,39 +97,37 @@ We also provide some convenience routines for operating on process phase stream 
 In particular, the methods
 ```go
 RequestContext.continueRequest()
+RequestContext.continueAndReplace()
 RequestContext.cancelRequest(...)
 ```
-effectively request phase responses for "continuing" and "responding immediately" (respectively). Note that "cancelling" does not mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. 
-
----
+effectively prepare request phase responses for "continuing", "replacing" the request for upstream processing, and "responding immediately" (respectively). Note that "cancelling" does not necessarily mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. After you call one of these methods you can no longer modify request data like headers or the body. 
 
 ### Modifying Headers
 
 You can add headers to a response with the convenience methods 
-```go
-(rc *RequestContext) AppendHeader(name string, value string) error
-(rc *RequestContext) AddHeader(name string, value string) error
-(rc *RequestContext) OverwriteHeader(name string, value string) error
-(rc *RequestContext) AppendHeaders(headers map[string]string) error
-(rc *RequestContext) AddHeaders(headers map[string]string) error
-(rc *RequestContext) OverwriteHeaders(headers map[string]string) error
+```java
+appendHeader(String name, String value)
+addHeader(String name, String value)
+overwriteHeader(String name, String value)
+appendHeaders(Map<String, String> headers)
+addHeaders(Map<String, String> headers)
+overwriteHeaders(Map<String, String> headers)
 ```
-where `Append` adds header values if they exist, `Add` adds a new value only if the header doesn't exist, and `Overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a `ContinueRequest` or `CancelRequest` call. 
+where `append` adds header values if they exist, `add` adds a new value only if the header doesn't exist, and `overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a formal response to `envoy`. 
 
 Headers can be removed with the
-```go
-(rc *RequestContext) RemoveHeader(name string) error
-(rc *RequestContext) RemoveHeaders(headers []string) error
-(rc *RequestContext) RemoveHeadersVariadic(headers ...string) error
+```java
+removeHeader(String name)
+removeHeaders(List<String> headers)
 ```
 methods, requiring only names of headers to remove. 
 
 ### Modifying Bodies
 
 Two methods help modify bodies: 
-```go
-(rc *RequestContext) ReplaceBodyChunk(body []byte) error
-(rc *RequestContext) ClearBodyChunk() error
+```java
+replaceBodyChunk(byte[] | String body)
+clearBodyChunk()
 ```
 These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below. 
 
@@ -122,93 +135,95 @@ These are the two options currently available in `envoy` ExtProcs: replace a chu
 
 You can run all the examples with 
 ```shell
-cd examples && just up
+./gradlew clean build && docker-compose up --build
 ```
-or if you don't use [`just`](https://github.com/casey/just), 
-```shell
-cd examples && docker-compose build && docker-compose up
-```
-The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `examples/_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
 
 Here is some sample output with the compose setup running: 
 ```shell
-$ curl localhost:8080/resource -X POST -H 'Content-type: text/plain' -d 'hello' -s -vvv | jq .
-*   Trying ::1...
-* TCP_NODELAY set
-* Connected to localhost (::1) port 8080 (#0)
-> POST /resource HTTP/1.1
+$ curl localhost:8080/hello -s -vvv | jq .
+*   Trying 127.0.0.1:8080...
+* Connected to localhost (127.0.0.1) port 8080 (#0)
+> GET /hello HTTP/1.1
 > Host: localhost:8080
-> User-Agent: curl/7.64.1
+> User-Agent: curl/7.85.0
 > Accept: */*
-> Content-type: text/plain
-> Content-Length: 5
 > 
-} [5 bytes data]
-* upload completely sent off: 5 out of 5 bytes
+* Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
-< date: Fri, 13 Jan 2023 19:52:19 GMT
+< date: Sun, 20 Aug 2023 05:01:03 GMT
 < content-type: text/plain; charset=utf-8
-< x-envoy-upstream-service-time: 3
-< x-extproc-request-digest: 7894e8a366f3fd045ad54c8c99fe850f0ca8b753e8590e67bb32a8f732b91c7b
-< x-extproc-custom-data: 39d0739f-da17-44c7-a864-5003ac20f509
-< x-extproc-started-ns: 1673639539607694718
-< x-extproc-finished-ns: 1673639539625057563
-< x-upstream-duration-ns: 17362958
+< x-envoy-upstream-service-time: 0
+< x-extproc-started: 2023-08-20T05:01:03.665086Z
+< x-extproc-finished: 2023-08-20T05:01:03.695863Z
+< x-upstream-duration-ns: 30777000
 < x-extproc-response: seen
-< x-extproc-names: noop
-< x-extproc-duration-ns: 3408
+< x-extproc-processors: NoOpRequestProcessor
 < server: envoy
 < transfer-encoding: chunked
 < 
-{ [399 bytes data]
+{ [435 bytes data]
 * Connection #0 to host localhost left intact
-* Closing connection 0
 {
-  "Datetime": "2023-01-13 19:52:19.62091161 +0000 UTC",
-  "Method": "POST",
-  "Path": "/resource",
+  "Datetime": "2023-08-20 05:01:03.693205257 +0000 UTC",
+  "Method": "GET",
+  "Path": "/hello",
+  "Query": {},
   "Headers": {
-    "Accept": "*/*,",
-    "Content-Type": "text/plain,",
-    "User-Agent": "curl/7.64.1,",
-    "X-Envoy-Expected-Rq-Timeout-Ms": "15000,",
-    "X-Extproc-Request": "seen,",
-    "X-Extproc-Started-Ns": "1673639539607694718,",
-    "X-Forwarded-Proto": "http,",
-    "X-Request-Id": "00859d5c-7018-4629-b7e8-04878334c808,"
+    "Accept": [
+      "*/*"
+    ],
+    "User-Agent": [
+      "curl/7.85.0"
+    ],
+    "X-Envoy-Expected-Rq-Timeout-Ms": [
+      "15000"
+    ],
+    "X-Extproc-Processors": [
+      "TimerRequestProcessor"
+    ],
+    "X-Extproc-Response": [
+      "seen"
+    ],
+    "X-Extproc-Started": [
+      "2023-08-20T05:01:03.665086Z"
+    ],
+    "X-Forwarded-Proto": [
+      "http"
+    ],
+    "X-Request-Id": [
+      "e207f6de-81a5-43df-9f00-3492b5dd151f"
+    ]
   },
-  "Body": "hello"
+  "Body": ""
 }
 ```
+All examples are defined in `src/main/java/extproc/processors`
 
 ### No-op
 
-The `noopRequestProcessor` defined in `examples/noop.go` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-names` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. 
+The `NoOpRequestProcessor` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-processors` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. This is also the default processor if you just boot up the SDK's `jar`.
 
 ### Trivial
 
-The `trivialRequestProcessor` defined in `examples/trivial.go` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor. 
+The `TrivialRequestProcessor` does very little: adds a header to the request sent to an upstream target and a similar header in the response to the client that simply declare the request passed through the processor. 
 
 ### Timer
 
-The `timerRequestProcessor` defined in `examples/timer.go` adds timing headers: one to the request sent to the upstream with the Unix UTC (ns) time when the request started processing, and similar started, finished, and duration headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
-
-### Data
-
-The `dataRequestProcessor` defined in `examples/data.go` stores custom data on the request headers phase and adds that data as a header to the response for the downstream client. 
-
-### Digest
-
-The `digestRequestProcessor` defined in `examples/digest.go` computes a digest of the request, using `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash). 
-
-### Dedup
-
-The `dedupRequestProcessor` defined in `examples/dedup.go` computes a digest of the request as above and uses that to reject requests when another request with the same digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" (`PUT`, `POST`, or `PATCH`) request in one terminal, and another similar request in another terminal and observe the second will have a 409 response. You can change the body in the second request and see it pass through. 
-
-### Masker
-
-The `maskerRequestProcessor` defined in `examples/masker.go` is an example of body modification with `RequestContext.ReplaceBodyChunk`. Basically, this ExtProc examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. 
+The `TimerRequestProcessor` adds timing headers: one to the request sent to the upstream with the ISO time when the request started processing, and similar started, finished, and duration (ns) headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
 
 ### Echo
 
-The `echoRequestProcessor` defined in `examples/echo.go` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. 
+The `EchoRequestProcessor` is an example of using an ExtProc to _respond_ to a request. If the request path starts with `/echo`, this processor responds directly instead of sending the request on to the upstream target. You can see logs like 
+```shell
+envoyexternalprocessor-echo-1      | Aug 20, 2023 3:27:40 PM extproc.processors.EchoRequestProcessor processRequestHeaders
+envoyexternalprocessor-echo-1      | INFO: EchoRequestProcessor.processRequestBody: /echo/hello responding before upstream
+```
+and a JSON response like 
+```json
+{
+  "path": "/echo/hello",
+  "body": "some data here"
+}
+```
+when that occurs. 
