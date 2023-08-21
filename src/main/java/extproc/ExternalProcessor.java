@@ -13,29 +13,39 @@ import io.grpc.protobuf.services.HealthStatusManager;
 import io.grpc.stub.StreamObserver;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HashMap;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.logging.Logger;
 
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
-  private static final Logger logger = Logger.getLogger(ExternalProcessor.class.getName());
+  private static final Logger _logger = Logger.getLogger(ExternalProcessor.class.getName());
 
   protected RequestProcessor processor;
   protected String procname;
   protected ProcessingOptions options;
   protected HealthStatusManager health;
+  protected Logger logger;
 
   public ExternalProcessor(RequestProcessor processor, HealthStatusManager health) {
     this.processor = processor;
     this.health = health;
+    this.logger = _logger;
     this.processor.setHealthManager(new InternalHealthManager());
-    logger.info("Setting up ExternalProcessor with " + processor.getName());
+    defineOptions();
+  }
+
+  public ExternalProcessor(RequestProcessor processor, HealthStatusManager health, Logger logger) {
+    this.processor = processor;
+    this.health = health;
+    this.logger = logger;
+    this.processor.setHealthManager(new InternalHealthManager());
     defineOptions();
   }
 
   protected void defineOptions() {
     procname = processor.getName();
     options = processor.getOptions();
+    logger.info("Setting up ExternalProcessor with " + procname + " and options " + options);
   }
 
   /*
@@ -86,10 +96,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
             responseObserver.onCompleted();
           } else {
             logger.severe("Encountered error in processing: " + err);
+            System.err.println("Encountered error in processing: " + err);
             responseObserver.onError(sre);
           }
         } else {
           logger.severe("Encountered error in processing: " + err);
+          System.err.println("Encountered error in processing: " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
@@ -120,8 +132,8 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_HEADERS:
         Map<String, String> requestHeaders =
             plainMapFromProtoHeaders(pr.getRequestHeaders().getHeaders());
-        ctx.initialize(requestHeaders);
-        addBoilerplateHeaders(ctx);
+        ctx.initializeRequest(requestHeaders);
+        addUpstreamExtProcHeaders(ctx);
         if (pr.getRequestHeaders().getEndOfStream()) {
           ctx.endOfStream = true;
         }
@@ -129,7 +141,10 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         break;
       case REQUEST_BODY:
         String requestBodyString = pr.getRequestBody().getBody().toStringUtf8();
-        addBoilerplateHeaders(ctx);
+        addUpstreamExtProcHeaders(ctx);
+        if (pr.getRequestBody().getEndOfStream()) {
+          ctx.endOfStream = true;
+        }
         processor.processRequestBody(ctx, requestBodyString);
         break;
       case REQUEST_TRAILERS:
@@ -140,7 +155,8 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case RESPONSE_HEADERS:
         Map<String, String> responseHeaders =
             plainMapFromProtoHeaders(pr.getResponseHeaders().getHeaders());
-        addBoilerplateHeaders(ctx);
+        ctx.initializeResponse(responseHeaders);
+        addDownstreamExtProcHeaders(ctx);
         if (pr.getRequestHeaders().getEndOfStream()) {
           ctx.endOfStream = true;
         }
@@ -148,7 +164,10 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         break;
       case RESPONSE_BODY:
         String responseBodyString = pr.getResponseBody().getBody().toStringUtf8();
-        addBoilerplateHeaders(ctx);
+        addDownstreamExtProcHeaders(ctx);
+        if (pr.getResponseBody().getEndOfStream()) {
+          ctx.endOfStream = true;
+        }
         processor.processResponseBody(ctx, responseBodyString);
         break;
       case RESPONSE_TRAILERS:
@@ -160,21 +179,46 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         throw new RuntimeException("Unknown request type");
     }
 
-    ctx.duration.plus(Duration.between(phaseStarted, Instant.now()));
+    ctx.updateDuration(phase, Duration.between(phaseStarted, Instant.now()));
     return ctx.getResponse(phase); // stops duration timer
   }
 
-  protected void addBoilerplateHeaders(RequestContext ctx) {
-    if (options.updateExtProcHeader) {
-      ctx.appendHeader("x-extproc-processors", procname);
-    }
-    if (options.updateDurationHeader) {
-      ctx.overwriteHeader("x-extproc-duration", ctx.getDuration().toString());
+  protected void addUpstreamExtProcHeaders(RequestContext ctx) {
+    if (options.upstreamDurationHeader) {
+      final String existing = ctx.requestHeaders.getOrDefault("x-extproc-duration-ns", "");
+      final Long nanos = ctx.duration.toNanos();
+      ctx.addHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
     }
   }
 
+  protected void addDownstreamExtProcHeaders(RequestContext ctx) {
+    if (options.downstreamDurationHeader) {
+      final String existing = ctx.responseHeaders.getOrDefault("x-extproc-duration-ns", "");
+      final Long nanos = ctx.duration.toNanos();
+      ctx.addHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
+    }
+  }
+
+  protected String durationHeaderValue(String existing, Long nanos) {
+    final String current = procname + "=" + String.valueOf(nanos);
+    if (existing.isEmpty()) {
+      return current;
+    }
+    String[] timedSections = existing.split(",");
+    if (timedSections.length == 0) {
+      return current;
+    }
+    for (int i = 0; i < timedSections.length; i++) {
+      if (timedSections[i].startsWith(procname)) {
+        timedSections[i] = current;
+        return String.join(",", timedSections);
+      }
+    }
+    return existing + "," + current;
+  }
+
   protected Map<String, String> plainMapFromProtoHeaders(HeaderMap protoHeaders) {
-    Map<String, String> headers = new HashMap<>();
+    Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
       headers.put(hv.getKey(), hv.getValue());
     }

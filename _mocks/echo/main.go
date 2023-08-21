@@ -6,8 +6,8 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
-	"time"
 	"strings"
+	"time"
 )
 
 var (
@@ -21,11 +21,13 @@ type Request struct {
 	Query    map[string][]string
 	Headers  map[string][]string
 	Body     string
+	Duration int64
 }
 
 func echo(w http.ResponseWriter, req *http.Request) {
 	log.Print("[" + time.Now().UTC().String() + "] " + req.Method + " " + req.URL.String())
 
+	started := time.Now()
 	r := Request{
 		Datetime: time.Now().UTC().String(),
 		Method:   req.Method,
@@ -33,6 +35,7 @@ func echo(w http.ResponseWriter, req *http.Request) {
 		Query:    req.URL.Query(),
 		Headers:  req.Header,
 		Body:     "",
+		Duration: time.Duration(0).Nanoseconds(),
 	}
 	if req.Body != nil {
 		bodyBytes, err := ioutil.ReadAll(req.Body)
@@ -43,7 +46,6 @@ func echo(w http.ResponseWriter, req *http.Request) {
 		r.Body = string(bodyBytes)
 		defer req.Body.Close()
 	}
-	rb, _ := json.Marshal(r)
 
 	_, ok := r.Query["delay"]
 	if ok && len(r.Query["delay"]) > 0 {
@@ -52,6 +54,9 @@ func echo(w http.ResponseWriter, req *http.Request) {
 		time.Sleep(delay)
 	}
 
+	r.Duration = time.Since(started).Nanoseconds()
+
+	rb, _ := json.Marshal(r)
 	w.Write(rb)
 }
 

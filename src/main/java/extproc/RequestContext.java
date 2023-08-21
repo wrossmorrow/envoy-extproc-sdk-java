@@ -19,10 +19,12 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 
 public class RequestContext {
   protected Instant started;
   protected Duration duration;
+  protected Long[] phaseDurations;
   protected String scheme;
   protected String authority;
   protected String method;
@@ -30,6 +32,7 @@ public class RequestContext {
   protected String requestId;
   protected String processorId;
   protected Map<String, String> requestHeaders;
+  protected Map<String, String> responseHeaders;
   protected boolean endOfStream;
 
   protected List<HeaderValueOption> addHeaders;
@@ -44,16 +47,82 @@ public class RequestContext {
   public RequestContext() {
     started = Instant.now();
     duration = Duration.between(this.started, Instant.now());
+    phaseDurations = new Long[6];
+    for (int i = 0; i < phaseDurations.length; i++) {
+      phaseDurations[i] = 0L;
+    }
     reset();
   }
 
-  public void initialize(Map<String, String> headers) {
-    requestHeaders = headers;
-    scheme = headers.get(":scheme");
-    authority = headers.get(":authority");
-    method = headers.get(":method");
-    path = headers.get(":path");
-    requestId = headers.get("x-request-id");
+  protected void initializeRequest(Map<String, String> headers) {
+    requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    for (Map.Entry<String, String> entry : headers.entrySet()) {
+      if (!entry.getKey().startsWith(":")) {
+        requestHeaders.put(entry.getKey(), entry.getValue());
+        if (entry.getKey().equalsIgnoreCase("x-request-id")) {
+          requestId = headers.get("x-request-id");
+        }
+      } else {
+        switch (entry.getKey()) {
+          case ":scheme":
+            scheme = entry.getValue();
+            break;
+          case ":authority":
+            authority = entry.getValue();
+            break;
+          case ":method":
+            method = entry.getValue();
+            break;
+          case ":path":
+            path = entry.getValue();
+            break;
+          default:
+            break;
+        }
+      }
+    }
+  }
+
+  protected void initializeResponse(Map<String, String> headers) {
+    responseHeaders = headers;
+  }
+
+  protected void reset() {
+    cancelled = false;
+    finished = false;
+    endOfStream = false;
+    addHeaders = new ArrayList<HeaderValueOption>();
+    removeHeaders = new ArrayList<String>();
+    bodyMutation = BodyMutation.newBuilder().build();
+  }
+
+  protected void updateDuration(RequestCase phase, Duration duration) {
+    Long nanos = duration.toNanos();
+    // technically, getNumber()-2 would work, but this is more readable
+    // and doesn't depend on the generated code for the Enum RequestCase
+    switch (phase) {
+      case REQUEST_HEADERS:
+        phaseDurations[0] = nanos;
+        break;
+      case REQUEST_BODY:
+        phaseDurations[1] = nanos;
+        break;
+      case REQUEST_TRAILERS:
+        phaseDurations[2] = nanos;
+        break;
+      case RESPONSE_HEADERS:
+        phaseDurations[3] = nanos;
+        break;
+      case RESPONSE_BODY:
+        phaseDurations[4] = nanos;
+        break;
+      case RESPONSE_TRAILERS:
+        phaseDurations[5] = nanos;
+        break;
+      default:
+        break;
+    }
+    this.duration.plus(duration);
   }
 
   public Map<String, String> getRequestHeaders() {
@@ -100,15 +169,6 @@ public class RequestContext {
     if (this.processorId != null) {
       this.processorId = processorId;
     }
-  }
-
-  public void reset() {
-    cancelled = false;
-    finished = false;
-    endOfStream = false;
-    addHeaders = new ArrayList<HeaderValueOption>();
-    removeHeaders = new ArrayList<String>();
-    bodyMutation = BodyMutation.newBuilder().build();
   }
 
   public void continueRequest() {

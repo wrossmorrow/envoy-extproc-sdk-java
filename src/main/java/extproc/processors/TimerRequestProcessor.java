@@ -31,24 +31,26 @@ public class TimerRequestProcessor implements RequestProcessor {
   public void processRequestTrailers(RequestContext ctx, Map<String, String> trailers) {}
 
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
-    final Instant started = ctx.getStarted();
-    final Instant finished = Instant.now();
-    final Duration duration = Duration.between(started, finished);
-    ctx.addHeader("x-extproc-started", started.toString());
-    ctx.addHeader("x-extproc-finished", finished.toString());
-    ctx.addHeader("x-upstream-duration-ns", String.valueOf(duration.toNanos()));
-    ctx.continueRequest();
+    if (ctx.streamComplete()) {
+      processComplete(ctx);
+    }
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
+    if (ctx.streamComplete()) {
+      processComplete(ctx);
+    }
+  }
+
+  public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
+
+  protected void processComplete(RequestContext ctx) {
     final Instant started = ctx.getStarted();
     final Instant finished = Instant.now();
     final Duration duration = Duration.between(started, finished);
     ctx.addHeader("x-extproc-started", started.toString());
     ctx.addHeader("x-extproc-finished", finished.toString());
-    ctx.addHeader("x-upstream-duration-ns", String.valueOf(duration.toNanos()));
+    ctx.addHeader("x-extproc-upstream-duration-ns", String.valueOf(duration.toNanos()));
     ctx.continueRequest();
   }
-
-  public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
 }

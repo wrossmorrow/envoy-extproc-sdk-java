@@ -30,30 +30,34 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    ports:
-      - '50051:50051'
     command:
       - -Dextproc.logs.phases=true
-      - -Dextproc.headers.processors=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
       - -Dextproc.class=extproc.processors.NoOpRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
   trivial:
     image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
     command:
       - -Dextproc.logs.phases=true
-      - -Dextproc.headers.processors=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
       - -Dextproc.class=extproc.processors.TrivialRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
   timer:
     image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
     command:
       - -Dextproc.logs.phases=true
-      - -Dextproc.headers.processors=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
       - -Dextproc.class=extproc.processors.TimerRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
   # data:
   #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
   #   command:
@@ -78,7 +82,9 @@ services:
     image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
     command:
       - -Dextproc.logs.phases=true
-      - -Dextproc.headers.processors=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
       - -Dextproc.class=extproc.processors.EchoRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
