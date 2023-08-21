@@ -23,7 +23,6 @@ public class TimerRequestProcessor implements RequestProcessor {
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     final Instant started = ctx.getStarted();
     ctx.addHeader("x-extproc-started", started.toString());
-    ctx.continueRequest();
   }
 
   public void processRequestBody(RequestContext ctx, String body) {}
@@ -51,6 +50,5 @@ public class TimerRequestProcessor implements RequestProcessor {
     ctx.addHeader("x-extproc-started", started.toString());
     ctx.addHeader("x-extproc-finished", finished.toString());
     ctx.addHeader("x-extproc-upstream-duration-ns", String.valueOf(duration.toNanos()));
-    ctx.continueRequest();
   }
 }

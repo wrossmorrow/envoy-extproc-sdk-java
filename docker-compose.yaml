@@ -15,7 +15,7 @@ services:
   # upstream "echo" server
   upstream:
     hostname: upstream
-    image: echo-server:${IMAGE_TAG:-compose}
+    image: echo-server
     build:
       context: _mocks/echo
       dockerfile: Dockerfile
@@ -26,7 +26,7 @@ services:
 
   # extprocs
   noop:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     build:
       context: .
       dockerfile: Dockerfile
@@ -39,7 +39,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   trivial:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -49,7 +49,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   timer:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -59,7 +59,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   digest:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -68,7 +68,7 @@ services:
       - -jar
       - /extproc/extproc.jar
   dedup:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -77,12 +77,12 @@ services:
       - -jar
       - /extproc/extproc.jar
   # masker:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+  #   image: envoy-extproc-sdk-java:
   #   command:
   #     - /extproc
   #     - masker
   echo:
-    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    image: envoy-extproc-sdk-java
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true

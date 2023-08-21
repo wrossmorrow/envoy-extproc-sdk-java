@@ -32,7 +32,7 @@ public class RequestContext {
   protected String authority;
   protected String method;
   protected String path;
-  protected Map<String, String> query;
+  protected Map<String, List<String>> query;
   protected String requestId;
   protected String processorId;
   protected Map<String, String> requestHeaders;
@@ -100,12 +100,23 @@ public class RequestContext {
     if (path.contains("?")) {
       String[] parts = path.split("\\?");
       path = parts[0];
-      if (parts[1].length() > 0) {
-        query = new HashMap<String, String>();
-        String decoded = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
-        for (String param : decoded.split("&")) {
-          query.put(param.split("=")[0], param.split("=")[1]);
-        }
+      if (parts.length > 1) {
+        parseQuery(URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
+      }
+    }
+  }
+
+  protected void parseQuery(String decodedQuery) {
+    query = new HashMap<String, List<String>>();
+    for (String param : decodedQuery.split("&")) {
+      String[] keyValuePair = param.split("=");
+      String key = keyValuePair[0];
+      String value = keyValuePair.length == 1 ? "" : keyValuePair[1];
+      if (!query.containsKey(key)) {
+        query.put(key, new ArrayList<String>());
+      }
+      if (value != null && !value.isEmpty()) {
+        query.get(key).add(value);
       }
     }
   }
@@ -115,9 +126,9 @@ public class RequestContext {
   }
 
   protected void updateDuration(RequestCase phase, Duration duration) {
-    Long nanos = duration.toNanos();
     // technically, phase.getNumber()-2 would work, but this is more readable
     // and doesn't depend on the generated code for the derived Enum RequestCase
+    Long nanos = duration.toNanos();
     switch (phase) {
       case REQUEST_HEADERS:
         phaseDurations[0] = nanos;
@@ -167,7 +178,7 @@ public class RequestContext {
     return path;
   }
 
-  public Map<String, String> getQuery() {
+  public Map<String, List<String>> getQuery() {
     return query;
   }
 
@@ -197,33 +208,31 @@ public class RequestContext {
     }
   }
 
-  public void continueRequest() {
-    commonResponse =
-        CommonResponse.newBuilder()
-            .setStatus(ResponseStatus.CONTINUE)
-            .setHeaderMutation(
-                HeaderMutation.newBuilder()
-                    .addAllSetHeaders(addHeaders)
-                    .addAllRemoveHeaders(removeHeaders)
-                    .build())
-            .setBodyMutation(bodyMutation)
-            .build();
-    finishRequest();
-  }
+  // public void continueRequest() {
+  //   commonResponse =
+  //       CommonResponse.newBuilder()
+  //           .setStatus(ResponseStatus.CONTINUE)
+  //           .setHeaderMutation(
+  //               HeaderMutation.newBuilder()
+  //                   .addAllSetHeaders(addHeaders)
+  //                   .addAllRemoveHeaders(removeHeaders)
+  //                   .build())
+  //           .setBodyMutation(bodyMutation)
+  //           .build();
+  // }
 
-  public void continueAndReplace() {
-    commonResponse =
-        CommonResponse.newBuilder()
-            .setStatus(ResponseStatus.CONTINUE_AND_REPLACE)
-            .setHeaderMutation(
-                HeaderMutation.newBuilder()
-                    .addAllSetHeaders(addHeaders)
-                    .addAllRemoveHeaders(removeHeaders)
-                    .build())
-            .setBodyMutation(bodyMutation)
-            .build();
-    finishRequest();
-  }
+  // public void continueAndReplace() {
+  //   commonResponse =
+  //       CommonResponse.newBuilder()
+  //           .setStatus(ResponseStatus.CONTINUE_AND_REPLACE)
+  //           .setHeaderMutation(
+  //               HeaderMutation.newBuilder()
+  //                   .addAllSetHeaders(addHeaders)
+  //                   .addAllRemoveHeaders(removeHeaders)
+  //                   .build())
+  //           .setBodyMutation(bodyMutation)
+  //           .build();
+  // }
 
   public void cancelRequest(int status) {
     cancelRequest(status, null, "");
@@ -252,11 +261,6 @@ public class RequestContext {
                     .build())
             .setBody(body)
             .build();
-    finishRequest();
-  }
-
-  private void finishRequest() {
-    finished = true;
   }
 
   public ProcessingResponse getResponse(RequestCase phase) {
@@ -265,18 +269,36 @@ public class RequestContext {
       return ProcessingResponse.newBuilder().setImmediateResponse(immediateResponse).build();
     }
 
-    if (!finished) {
-      continueRequest();
-    }
-
     switch (phase) {
       case REQUEST_HEADERS:
         return ProcessingResponse.newBuilder()
-            .setRequestHeaders(HeadersResponse.newBuilder().setResponse(commonResponse))
+            .setRequestHeaders(
+                HeadersResponse.newBuilder()
+                    .setResponse(
+                        CommonResponse.newBuilder()
+                            .setStatus(ResponseStatus.CONTINUE)
+                            .setHeaderMutation(
+                                HeaderMutation.newBuilder()
+                                    .addAllSetHeaders(addHeaders)
+                                    .addAllRemoveHeaders(removeHeaders)
+                                    .build())
+                            .setBodyMutation(bodyMutation)
+                            .build()))
             .build();
       case REQUEST_BODY:
         return ProcessingResponse.newBuilder()
-            .setRequestBody(BodyResponse.newBuilder().setResponse(commonResponse))
+            .setRequestBody(
+                BodyResponse.newBuilder()
+                    .setResponse(
+                        CommonResponse.newBuilder()
+                            .setStatus(ResponseStatus.CONTINUE)
+                            .setHeaderMutation(
+                                HeaderMutation.newBuilder()
+                                    .addAllSetHeaders(addHeaders)
+                                    .addAllRemoveHeaders(removeHeaders)
+                                    .build())
+                            .setBodyMutation(bodyMutation)
+                            .build()))
             .build();
       case REQUEST_TRAILERS:
         return ProcessingResponse.newBuilder()
@@ -290,11 +312,33 @@ public class RequestContext {
             .build();
       case RESPONSE_HEADERS:
         return ProcessingResponse.newBuilder()
-            .setResponseHeaders(HeadersResponse.newBuilder().setResponse(commonResponse))
+            .setResponseHeaders(
+                HeadersResponse.newBuilder()
+                    .setResponse(
+                        CommonResponse.newBuilder()
+                            .setStatus(ResponseStatus.CONTINUE)
+                            .setHeaderMutation(
+                                HeaderMutation.newBuilder()
+                                    .addAllSetHeaders(addHeaders)
+                                    .addAllRemoveHeaders(removeHeaders)
+                                    .build())
+                            .setBodyMutation(bodyMutation)
+                            .build()))
             .build();
       case RESPONSE_BODY:
         return ProcessingResponse.newBuilder()
-            .setResponseBody(BodyResponse.newBuilder().setResponse(commonResponse))
+            .setResponseBody(
+                BodyResponse.newBuilder()
+                    .setResponse(
+                        CommonResponse.newBuilder()
+                            .setStatus(ResponseStatus.CONTINUE)
+                            .setHeaderMutation(
+                                HeaderMutation.newBuilder()
+                                    .addAllSetHeaders(addHeaders)
+                                    .addAllRemoveHeaders(removeHeaders)
+                                    .build())
+                            .setBodyMutation(bodyMutation)
+                            .build()))
             .build();
       case RESPONSE_TRAILERS:
         return ProcessingResponse.newBuilder()
@@ -346,9 +390,6 @@ public class RequestContext {
   }
 
   public void updateHeader(String name, String value, String action) {
-    if (finished) {
-      throw new RuntimeException("cannot update headers after request is finished");
-    }
     addHeaders.add(
         HeaderValueOption.newBuilder()
             .setHeader(
@@ -361,32 +402,20 @@ public class RequestContext {
   }
 
   public void updateHeaders(Map<String, String> headers, String action) {
-    if (finished) {
-      throw new RuntimeException("cannot update headers after request is finished");
-    }
     for (Map.Entry<String, String> entry : headers.entrySet()) {
       this.updateHeader(entry.getKey(), entry.getValue(), action);
     }
   }
 
   public void replaceBodyChunk(byte[] body) {
-    if (finished) {
-      throw new RuntimeException("cannot replace body (chunk) after request is finished");
-    }
     bodyMutation = BodyMutation.newBuilder().setBody(ByteString.copyFrom(body)).build();
   }
 
   public void replaceBodyChunk(String body) {
-    if (finished) {
-      throw new RuntimeException("cannot replace body (chunk) after request is finished");
-    }
     bodyMutation = BodyMutation.newBuilder().setBody(ByteString.copyFromUtf8(body)).build();
   }
 
   public void clearBodyChunk() {
-    if (finished) {
-      throw new RuntimeException("cannot clear body (chunk) after request is finished");
-    }
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
   }
 }

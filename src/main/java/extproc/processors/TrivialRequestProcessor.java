@@ -20,7 +20,6 @@ public class TrivialRequestProcessor implements RequestProcessor {
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     ctx.addHeader("x-extproc-request-seen", "true");
-    ctx.continueRequest();
   }
 
   public void processRequestBody(RequestContext ctx, String body) {}
@@ -29,12 +28,10 @@ public class TrivialRequestProcessor implements RequestProcessor {
 
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
     ctx.addHeader("x-extproc-response-seen", "true");
-    ctx.continueRequest();
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
     ctx.addHeader("x-extproc-response-seen", "true");
-    ctx.continueRequest();
   }
 
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}

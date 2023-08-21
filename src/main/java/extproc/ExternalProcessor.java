@@ -115,9 +115,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     };
   }
 
-  protected ProcessingResponse processPhase(ProcessingRequest pr, RequestContext ctx) {
+  protected ProcessingResponse processPhase(ProcessingRequest request, RequestContext ctx) {
 
-    RequestCase phase = pr.getRequestCase();
+    final RequestCase phase = request.getRequestCase();
     final Instant phaseStarted = Instant.now();
 
     if (phase != RequestCase.REQUEST_HEADERS) {
@@ -131,63 +131,76 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     switch (phase) {
       case REQUEST_HEADERS:
         Map<String, String> requestHeaders =
-            plainMapFromProtoHeaders(pr.getRequestHeaders().getHeaders());
+            plainMapFromProtoHeaders(request.getRequestHeaders().getHeaders());
         ctx.initializeRequest(requestHeaders);
-        addUpstreamExtProcHeaders(ctx);
-        if (pr.getRequestHeaders().getEndOfStream()) {
+        if (request.getRequestHeaders().getEndOfStream()) {
           ctx.endOfStream = true;
         }
         processor.processRequestHeaders(ctx, requestHeaders);
         break;
       case REQUEST_BODY:
-        String requestBodyString = pr.getRequestBody().getBody().toStringUtf8();
-        addUpstreamExtProcHeaders(ctx);
-        if (pr.getRequestBody().getEndOfStream()) {
+        String requestBodyString = request.getRequestBody().getBody().toStringUtf8();
+        if (request.getRequestBody().getEndOfStream()) {
           ctx.endOfStream = true;
         }
         processor.processRequestBody(ctx, requestBodyString);
         break;
       case REQUEST_TRAILERS:
         Map<String, String> requestTrailers =
-            plainMapFromProtoHeaders(pr.getRequestTrailers().getTrailers());
+            plainMapFromProtoHeaders(request.getRequestTrailers().getTrailers());
         processor.processRequestTrailers(ctx, requestTrailers);
         break;
       case RESPONSE_HEADERS:
         Map<String, String> responseHeaders =
-            plainMapFromProtoHeaders(pr.getResponseHeaders().getHeaders());
+            plainMapFromProtoHeaders(request.getResponseHeaders().getHeaders());
         ctx.initializeResponse(responseHeaders);
-        addDownstreamExtProcHeaders(ctx);
-        if (pr.getRequestHeaders().getEndOfStream()) {
+        if (request.getRequestHeaders().getEndOfStream()) {
           ctx.endOfStream = true;
         }
         processor.processResponseHeaders(ctx, responseHeaders);
         break;
       case RESPONSE_BODY:
-        String responseBodyString = pr.getResponseBody().getBody().toStringUtf8();
-        addDownstreamExtProcHeaders(ctx);
-        if (pr.getResponseBody().getEndOfStream()) {
+        String responseBodyString = request.getResponseBody().getBody().toStringUtf8();
+        if (request.getResponseBody().getEndOfStream()) {
           ctx.endOfStream = true;
         }
         processor.processResponseBody(ctx, responseBodyString);
         break;
       case RESPONSE_TRAILERS:
         Map<String, String> responseTrailers =
-            plainMapFromProtoHeaders(pr.getResponseTrailers().getTrailers());
+            plainMapFromProtoHeaders(request.getResponseTrailers().getTrailers());
         processor.processResponseTrailers(ctx, responseTrailers);
         break;
       default:
         throw new RuntimeException("Unknown request type");
     }
 
+    // we're not capturing response serialization time here, but we can't include
+    // info about that in the headers we might include anyway (circularity).
     ctx.updateDuration(phase, Duration.between(phaseStarted, Instant.now()));
-    return ctx.getResponse(phase); // stops duration timer
+    switch (phase) {
+      case REQUEST_HEADERS:
+      case REQUEST_BODY:
+      case REQUEST_TRAILERS:
+        addUpstreamExtProcHeaders(ctx);
+        break;
+      case RESPONSE_HEADERS:
+      case RESPONSE_BODY:
+      case RESPONSE_TRAILERS:
+        addDownstreamExtProcHeaders(ctx);
+        break;
+      default:
+        break;
+    }
+
+    return ctx.getResponse(phase);
   }
 
   protected void addUpstreamExtProcHeaders(RequestContext ctx) {
     if (options.upstreamDurationHeader) {
       final String existing = ctx.requestHeaders.getOrDefault("x-extproc-duration-ns", "");
       final Long nanos = ctx.duration.toNanos();
-      ctx.addHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
+      ctx.overwriteHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
     }
   }
 
@@ -195,7 +208,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     if (options.downstreamDurationHeader) {
       final String existing = ctx.responseHeaders.getOrDefault("x-extproc-duration-ns", "");
       final Long nanos = ctx.duration.toNanos();
-      ctx.addHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
+      ctx.overwriteHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
     }
   }
 

@@ -39,7 +39,6 @@ public class DedupRequestProcessor implements RequestProcessor {
       }
       inflight.put(digest, ctx.getRequestId());
     }
-    ctx.continueRequest();
   }
 
   public void processRequestBody(RequestContext ctx, String body) {}
@@ -51,7 +50,6 @@ public class DedupRequestProcessor implements RequestProcessor {
       String digest = ctx.getRequestHeaders().get("x-extproc-request-digest");
       inflight.remove(digest);
     }
-    ctx.continueRequest();
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
@@ -59,7 +57,6 @@ public class DedupRequestProcessor implements RequestProcessor {
       String digest = ctx.getRequestHeaders().get("x-extproc-request-digest");
       inflight.remove(digest);
     }
-    ctx.continueRequest();
   }
 
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
