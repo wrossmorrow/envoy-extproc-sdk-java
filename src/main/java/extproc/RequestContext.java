@@ -42,9 +42,9 @@ public class RequestContext {
   protected List<String> removeHeaders;
 
   protected Boolean finished;
+  protected Boolean replace;
   protected Boolean cancelled;
   BodyMutation bodyMutation;
-  CommonResponse commonResponse;
   ImmediateResponse immediateResponse;
 
   public RequestContext() {
@@ -59,6 +59,7 @@ public class RequestContext {
 
   protected void reset() {
     cancelled = false;
+    replace = false;
     finished = false;
     endOfStream = false;
     addHeaders = new ArrayList<HeaderValueOption>();
@@ -208,31 +209,9 @@ public class RequestContext {
     }
   }
 
-  // public void continueRequest() {
-  //   commonResponse =
-  //       CommonResponse.newBuilder()
-  //           .setStatus(ResponseStatus.CONTINUE)
-  //           .setHeaderMutation(
-  //               HeaderMutation.newBuilder()
-  //                   .addAllSetHeaders(addHeaders)
-  //                   .addAllRemoveHeaders(removeHeaders)
-  //                   .build())
-  //           .setBodyMutation(bodyMutation)
-  //           .build();
-  // }
-
-  // public void continueAndReplace() {
-  //   commonResponse =
-  //       CommonResponse.newBuilder()
-  //           .setStatus(ResponseStatus.CONTINUE_AND_REPLACE)
-  //           .setHeaderMutation(
-  //               HeaderMutation.newBuilder()
-  //                   .addAllSetHeaders(addHeaders)
-  //                   .addAllRemoveHeaders(removeHeaders)
-  //                   .build())
-  //           .setBodyMutation(bodyMutation)
-  //           .build();
-  // }
+  public void continueAndReplace() {
+    replace = true;
+  }
 
   public void cancelRequest(int status) {
     cancelRequest(status, null, "");
@@ -271,88 +250,64 @@ public class RequestContext {
 
     switch (phase) {
       case REQUEST_HEADERS:
-        return ProcessingResponse.newBuilder()
-            .setRequestHeaders(
-                HeadersResponse.newBuilder()
-                    .setResponse(
-                        CommonResponse.newBuilder()
-                            .setStatus(ResponseStatus.CONTINUE)
-                            .setHeaderMutation(
-                                HeaderMutation.newBuilder()
-                                    .addAllSetHeaders(addHeaders)
-                                    .addAllRemoveHeaders(removeHeaders)
-                                    .build())
-                            .setBodyMutation(bodyMutation)
-                            .build()))
-            .build();
+        return ProcessingResponse.newBuilder().setRequestHeaders(prepareHeadersResponse()).build();
       case REQUEST_BODY:
-        return ProcessingResponse.newBuilder()
-            .setRequestBody(
-                BodyResponse.newBuilder()
-                    .setResponse(
-                        CommonResponse.newBuilder()
-                            .setStatus(ResponseStatus.CONTINUE)
-                            .setHeaderMutation(
-                                HeaderMutation.newBuilder()
-                                    .addAllSetHeaders(addHeaders)
-                                    .addAllRemoveHeaders(removeHeaders)
-                                    .build())
-                            .setBodyMutation(bodyMutation)
-                            .build()))
-            .build();
+        return ProcessingResponse.newBuilder().setRequestBody(prepareBodyResponse()).build();
       case REQUEST_TRAILERS:
         return ProcessingResponse.newBuilder()
-            .setRequestTrailers(
-                TrailersResponse.newBuilder()
-                    .setHeaderMutation(
-                        HeaderMutation.newBuilder()
-                            .addAllSetHeaders(addHeaders)
-                            .addAllRemoveHeaders(removeHeaders)
-                            .build()))
+            .setRequestTrailers(prepareTrailersResponse())
             .build();
       case RESPONSE_HEADERS:
-        return ProcessingResponse.newBuilder()
-            .setResponseHeaders(
-                HeadersResponse.newBuilder()
-                    .setResponse(
-                        CommonResponse.newBuilder()
-                            .setStatus(ResponseStatus.CONTINUE)
-                            .setHeaderMutation(
-                                HeaderMutation.newBuilder()
-                                    .addAllSetHeaders(addHeaders)
-                                    .addAllRemoveHeaders(removeHeaders)
-                                    .build())
-                            .setBodyMutation(bodyMutation)
-                            .build()))
-            .build();
+        return ProcessingResponse.newBuilder().setResponseHeaders(prepareHeadersResponse()).build();
       case RESPONSE_BODY:
-        return ProcessingResponse.newBuilder()
-            .setResponseBody(
-                BodyResponse.newBuilder()
-                    .setResponse(
-                        CommonResponse.newBuilder()
-                            .setStatus(ResponseStatus.CONTINUE)
-                            .setHeaderMutation(
-                                HeaderMutation.newBuilder()
-                                    .addAllSetHeaders(addHeaders)
-                                    .addAllRemoveHeaders(removeHeaders)
-                                    .build())
-                            .setBodyMutation(bodyMutation)
-                            .build()))
-            .build();
+        return ProcessingResponse.newBuilder().setResponseBody(prepareBodyResponse()).build();
       case RESPONSE_TRAILERS:
         return ProcessingResponse.newBuilder()
-            .setResponseTrailers(
-                TrailersResponse.newBuilder()
-                    .setHeaderMutation(
-                        HeaderMutation.newBuilder()
-                            .addAllSetHeaders(addHeaders)
-                            .addAllRemoveHeaders(removeHeaders)
-                            .build()))
+            .setResponseTrailers(prepareTrailersResponse())
             .build();
       default:
         throw new RuntimeException("unknown request phase");
     }
+  }
+
+  protected HeadersResponse prepareHeadersResponse() {
+    return HeadersResponse.newBuilder()
+        .setResponse(
+            CommonResponse.newBuilder()
+                .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
+                .setHeaderMutation(
+                    HeaderMutation.newBuilder()
+                        .addAllSetHeaders(addHeaders)
+                        .addAllRemoveHeaders(removeHeaders)
+                        .build())
+                .setBodyMutation(bodyMutation)
+                .build())
+        .build();
+  }
+
+  protected BodyResponse prepareBodyResponse() {
+    return BodyResponse.newBuilder()
+        .setResponse(
+            CommonResponse.newBuilder()
+                .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
+                .setHeaderMutation(
+                    HeaderMutation.newBuilder()
+                        .addAllSetHeaders(addHeaders)
+                        .addAllRemoveHeaders(removeHeaders)
+                        .build())
+                .setBodyMutation(bodyMutation)
+                .build())
+        .build();
+  }
+
+  protected TrailersResponse prepareTrailersResponse() {
+    return TrailersResponse.newBuilder()
+        .setHeaderMutation(
+            HeaderMutation.newBuilder()
+                .addAllSetHeaders(addHeaders)
+                .addAllRemoveHeaders(removeHeaders)
+                .build())
+        .build();
   }
 
   public void appendHeader(String name, String value) {

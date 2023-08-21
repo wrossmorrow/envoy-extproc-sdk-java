@@ -97,11 +97,10 @@ We also provide some convenience routines for operating on process phase stream 
 
 In particular, the methods
 ```go
-RequestContext.continueRequest()
 RequestContext.continueAndReplace()
-RequestContext.cancelRequest(...)
+RequestContext.cancelRequest(int status, Map<String, String> headers, String body)
 ```
-effectively prepare request phase responses for "continuing", "replacing" the request for upstream processing, and "responding immediately" (respectively). Note that "cancelling" does not necessarily mean request failure; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. After you call one of these methods you can no longer modify request data like headers or the body. 
+effectively signal request phase responses "replacing" the request for upstream processing and "responding immediately" (respectively). If you `replace` you won't get further filter requests (the `proto` comments suggest this as a mechanism to convert a `GET` to a `PUT`/`POST`/`PATCH`). Note also that "cancelling" does not necessarily mean request _failure_; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. After you call `cancelRequest` you should no longer modify request data like headers or the body, as this method prepares the response. 
 
 ### Modifying Headers
 
