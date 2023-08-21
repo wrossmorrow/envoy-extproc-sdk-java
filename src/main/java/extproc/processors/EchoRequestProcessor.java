@@ -11,7 +11,7 @@ public class EchoRequestProcessor implements RequestProcessor {
   private static final Logger logger = Logger.getLogger(EchoRequestProcessor.class.getName());
 
   public String getName() {
-    return "EchoRequestProcessor";
+    return "echo";
   }
 
   public ProcessingOptions getOptions() {

@@ -9,7 +9,7 @@ import java.util.Map;
 public class TrivialRequestProcessor implements RequestProcessor {
 
   public String getName() {
-    return "TrivialRequestProcessor";
+    return "trivial";
   }
 
   public ProcessingOptions getOptions() {

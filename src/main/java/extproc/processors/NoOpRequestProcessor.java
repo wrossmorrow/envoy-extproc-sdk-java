@@ -8,7 +8,7 @@ import java.util.Map;
 
 public class NoOpRequestProcessor implements RequestProcessor {
   public String getName() {
-    return "NoOpRequestProcessor";
+    return "noop";
   }
 
   public ProcessingOptions getOptions() {

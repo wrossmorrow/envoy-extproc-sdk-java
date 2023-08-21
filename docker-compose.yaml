@@ -58,21 +58,24 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
-  # data:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - data
-  # digest:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - digest
-  # dedup:
-  #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
-  #   command:
-  #     - /extproc
-  #     - dedup
+  digest:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=extproc.processors.DigestRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+  dedup:
+    image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=extproc.processors.DedupRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
   # masker:
   #   image: envoy-extproc-sdk-java:${IMAGE_TAG:-compose}
   #   command:

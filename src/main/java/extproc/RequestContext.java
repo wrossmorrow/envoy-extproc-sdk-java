@@ -14,9 +14,12 @@ import build.buf.gen.envoy.service.ext_proc.v3.TrailersResponse;
 import build.buf.gen.envoy.type.v3.HttpStatus;
 import build.buf.gen.envoy.type.v3.StatusCode;
 import com.google.protobuf.ByteString;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -29,12 +32,12 @@ public class RequestContext {
   protected String authority;
   protected String method;
   protected String path;
+  protected Map<String, String> query;
   protected String requestId;
   protected String processorId;
   protected Map<String, String> requestHeaders;
   protected Map<String, String> responseHeaders;
   protected boolean endOfStream;
-
   protected List<HeaderValueOption> addHeaders;
   protected List<String> removeHeaders;
 
@@ -52,6 +55,15 @@ public class RequestContext {
       phaseDurations[i] = 0L;
     }
     reset();
+  }
+
+  protected void reset() {
+    cancelled = false;
+    finished = false;
+    endOfStream = false;
+    addHeaders = new ArrayList<HeaderValueOption>();
+    removeHeaders = new ArrayList<String>();
+    bodyMutation = BodyMutation.newBuilder().build();
   }
 
   protected void initializeRequest(Map<String, String> headers) {
@@ -74,10 +86,25 @@ public class RequestContext {
             method = entry.getValue();
             break;
           case ":path":
-            path = entry.getValue();
+            parsePath(entry.getValue());
             break;
           default:
             break;
+        }
+      }
+    }
+  }
+
+  protected void parsePath(String rawPath) {
+    path = rawPath;
+    if (path.contains("?")) {
+      String[] parts = path.split("\\?");
+      path = parts[0];
+      if (parts[1].length() > 0) {
+        query = new HashMap<String, String>();
+        String decoded = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+        for (String param : decoded.split("&")) {
+          query.put(param.split("=")[0], param.split("=")[1]);
         }
       }
     }
@@ -87,19 +114,10 @@ public class RequestContext {
     responseHeaders = headers;
   }
 
-  protected void reset() {
-    cancelled = false;
-    finished = false;
-    endOfStream = false;
-    addHeaders = new ArrayList<HeaderValueOption>();
-    removeHeaders = new ArrayList<String>();
-    bodyMutation = BodyMutation.newBuilder().build();
-  }
-
   protected void updateDuration(RequestCase phase, Duration duration) {
     Long nanos = duration.toNanos();
-    // technically, getNumber()-2 would work, but this is more readable
-    // and doesn't depend on the generated code for the Enum RequestCase
+    // technically, phase.getNumber()-2 would work, but this is more readable
+    // and doesn't depend on the generated code for the derived Enum RequestCase
     switch (phase) {
       case REQUEST_HEADERS:
         phaseDurations[0] = nanos;
@@ -129,6 +147,10 @@ public class RequestContext {
     return requestHeaders;
   }
 
+  public Map<String, String> getResponseHeaders() {
+    return responseHeaders;
+  }
+
   public String getScheme() {
     return scheme;
   }
@@ -143,6 +165,10 @@ public class RequestContext {
 
   public String getPath() {
     return path;
+  }
+
+  public Map<String, String> getQuery() {
+    return query;
   }
 
   public String getRequestId() {

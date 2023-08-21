@@ -81,18 +81,19 @@ The `RequestContext` is initialized with some request data when request headers 
 * the HTTP `Method`
 * the URL `Path`
 * `envoy`'s `x-request-id` (a UUID)
-* _all_ request headers in a `Map<String, String>`
+* _all_ request headers in a case-insensitive `Map<String, String>`
+* _all_ response headers in a case-insensitive `Map<String, String>` (when available)
 * the request processing stream start time `started`
 * an accumulator `duration` _for the time spent in external processing_
 * a flag-method `streamComplete` within header and body phases to know when request phase data is complete
 
-This context is carried through every request phase. In particular, your implementation can store data in memory related to particular requests keyed on the request ID or via another strategy of your choosing. You can also supply your own ID, which can be stored in the context, if that suits your needs better, with `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
+This context is carried through every request phase, and passed to the interface methods. In particular, your implementation can store data in memory related to specific requests keyed on the request ID or via another strategy of your choosing. You can supply your own ID, which can be stored in the context, if that suits your needs better, using `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 
 Your `RequestProcessor` implementation can use whatever storage strategy for your own contextual data you want, but you should make sure to use `requestId` (or your own ID) as a key in case your external processor sees concurrent requests. 
 
 ### Forming Responses
 
-We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
+We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less (preferably nothing) about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
 
 In particular, the methods
 ```go
@@ -141,34 +142,39 @@ The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (
 
 Here is some sample output with the compose setup running: 
 ```shell
-$ curl localhost:8080/hello -s -vvv | jq .
+$ curl localhost:8080/?delay=3 -s -vvv | jq .
 *   Trying 127.0.0.1:8080...
 * Connected to localhost (127.0.0.1) port 8080 (#0)
-> GET /hello HTTP/1.1
+> GET /?delay=3 HTTP/1.1
 > Host: localhost:8080
 > User-Agent: curl/7.85.0
 > Accept: */*
 > 
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
-< date: Sun, 20 Aug 2023 05:01:03 GMT
+< date: Mon, 21 Aug 2023 00:55:02 GMT
 < content-type: text/plain; charset=utf-8
-< x-envoy-upstream-service-time: 0
-< x-extproc-started: 2023-08-20T05:01:03.665086Z
-< x-extproc-finished: 2023-08-20T05:01:03.695863Z
-< x-upstream-duration-ns: 30777000
-< x-extproc-response: seen
-< x-extproc-processors: NoOpRequestProcessor
+< x-envoy-upstream-service-time: 3010
+< x-extproc-started: 2023-08-21T00:54:59.812084Z
+< x-extproc-finished: 2023-08-21T00:55:02.859951Z
+< x-extproc-upstream-duration-ns: 3047867000
+< x-extproc-response-seen: true
+< x-extproc-duration-ns: echo=3000,timer=3000,trivial=3000,noop=4000
 < server: envoy
+< x-request-id: 600346f9-f76b-442b-8d31-aa77383a609b
 < transfer-encoding: chunked
 < 
-{ [435 bytes data]
+{ [492 bytes data]
 * Connection #0 to host localhost left intact
 {
-  "Datetime": "2023-08-20 05:01:03.693205257 +0000 UTC",
+  "Datetime": "2023-08-21 00:54:59.831847755 +0000 UTC",
   "Method": "GET",
-  "Path": "/hello",
-  "Query": {},
+  "Path": "/",
+  "Query": {
+    "delay": [
+      "3"
+    ]
+  },
   "Headers": {
     "Accept": [
       "*/*"
@@ -179,23 +185,24 @@ $ curl localhost:8080/hello -s -vvv | jq .
     "X-Envoy-Expected-Rq-Timeout-Ms": [
       "15000"
     ],
-    "X-Extproc-Processors": [
-      "TimerRequestProcessor"
+    "X-Extproc-Duration-Ns": [
+      "noop=4000,trivial=3000,timer=3000,echo=3000"
     ],
-    "X-Extproc-Response": [
-      "seen"
+    "X-Extproc-Request-Seen": [
+      "true"
     ],
     "X-Extproc-Started": [
-      "2023-08-20T05:01:03.665086Z"
+      "2023-08-21T00:54:59.812084Z"
     ],
     "X-Forwarded-Proto": [
       "http"
     ],
     "X-Request-Id": [
-      "e207f6de-81a5-43df-9f00-3492b5dd151f"
+      "600346f9-f76b-442b-8d31-aa77383a609b"
     ]
   },
-  "Body": ""
+  "Body": "",
+  "Duration": 3002055210
 }
 ```
 All examples are defined in `src/main/java/extproc/processors`
@@ -227,3 +234,11 @@ and a JSON response like
 }
 ```
 when that occurs. 
+
+### Digest
+
+The `DigestRequestProcessor` computes a (SHA256) digest of the request, specifically of `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash).
+
+### Dedup
+
+The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the ?delay=<int> query param to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 

@@ -11,7 +11,7 @@ import java.util.Map;
 public class TimerRequestProcessor implements RequestProcessor {
 
   public String getName() {
-    return "TimerRequestProcessor";
+    return "timer";
   }
 
   public ProcessingOptions getOptions() {
