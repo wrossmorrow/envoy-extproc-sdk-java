@@ -142,39 +142,36 @@ The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (
 
 Here is some sample output with the compose setup running: 
 ```shell
-$ curl localhost:8080/?delay=3 -s -vvv | jq .
+$ curl localhost:8080/hello -s -vvv | jq .
 *   Trying 127.0.0.1:8080...
 * Connected to localhost (127.0.0.1) port 8080 (#0)
-> GET /?delay=3 HTTP/1.1
+> GET /hello HTTP/1.1
 > Host: localhost:8080
 > User-Agent: curl/7.85.0
 > Accept: */*
 > 
 * Mark bundle as not supporting multiuse
 < HTTP/1.1 200 OK
-< date: Mon, 21 Aug 2023 00:55:02 GMT
+< date: Mon, 21 Aug 2023 01:55:51 GMT
 < content-type: text/plain; charset=utf-8
-< x-envoy-upstream-service-time: 3010
-< x-extproc-started: 2023-08-21T00:54:59.812084Z
-< x-extproc-finished: 2023-08-21T00:55:02.859951Z
-< x-extproc-upstream-duration-ns: 3047867000
+< x-envoy-upstream-service-time: 0
+< x-extproc-request-digest: c9f3c39472d7994b315edded7430515fac5160335ff9b831ed0910cf8d1faa5e
+< x-extproc-started: 2023-08-21T01:55:51.513855Z
+< x-extproc-finished: 2023-08-21T01:55:51.552927Z
+< x-extproc-upstream-duration-ns: 39072000
 < x-extproc-response-seen: true
-< x-extproc-duration-ns: echo=3000,timer=3000,trivial=3000,noop=4000
+< x-extproc-duration-ns: echo=2000,dedup=3000,digest=4000,timer=5000,trivial=2000,noop=6000
 < server: envoy
-< x-request-id: 600346f9-f76b-442b-8d31-aa77383a609b
+< x-request-id: c9792bc4-668a-4e99-a89b-da559b1a7e87
 < transfer-encoding: chunked
 < 
-{ [492 bytes data]
+{ [597 bytes data]
 * Connection #0 to host localhost left intact
 {
-  "Datetime": "2023-08-21 00:54:59.831847755 +0000 UTC",
+  "Datetime": "2023-08-21 01:55:51.541470292 +0000 UTC",
   "Method": "GET",
-  "Path": "/",
-  "Query": {
-    "delay": [
-      "3"
-    ]
-  },
+  "Path": "/hello",
+  "Query": {},
   "Headers": {
     "Accept": [
       "*/*"
@@ -186,23 +183,26 @@ $ curl localhost:8080/?delay=3 -s -vvv | jq .
       "15000"
     ],
     "X-Extproc-Duration-Ns": [
-      "noop=4000,trivial=3000,timer=3000,echo=3000"
+      "noop=6000,trivial=2000,timer=5000,digest=4000,dedup=3000,echo=2000"
+    ],
+    "X-Extproc-Request-Digest": [
+      "c9f3c39472d7994b315edded7430515fac5160335ff9b831ed0910cf8d1faa5e"
     ],
     "X-Extproc-Request-Seen": [
       "true"
     ],
     "X-Extproc-Started": [
-      "2023-08-21T00:54:59.812084Z"
+      "2023-08-21T01:55:51.513855Z"
     ],
     "X-Forwarded-Proto": [
       "http"
     ],
     "X-Request-Id": [
-      "600346f9-f76b-442b-8d31-aa77383a609b"
+      "c9792bc4-668a-4e99-a89b-da559b1a7e87"
     ]
   },
   "Body": "",
-  "Duration": 3002055210
+  "Duration": 9084
 }
 ```
 All examples are defined in `src/main/java/extproc/processors`
