@@ -1,4 +1,4 @@
-package extproc;
+package com.wrossmorrow.extproc;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;

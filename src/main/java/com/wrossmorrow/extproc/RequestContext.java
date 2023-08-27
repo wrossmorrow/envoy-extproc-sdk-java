@@ -1,4 +1,4 @@
-package extproc;
+package com.wrossmorrow.extproc;
 
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyMutation;
@@ -32,7 +32,9 @@ public class RequestContext {
   protected String authority;
   protected String method;
   protected String path;
-  protected Map<String, List<String>> query;
+  protected String queryString;
+  protected Map<String, List<String>> params;
+  protected int status;
   protected String requestId;
   protected String processorId;
   protected Map<String, String> requestHeaders;
@@ -48,6 +50,7 @@ public class RequestContext {
   ImmediateResponse immediateResponse;
 
   public RequestContext() {
+    status = 0;
     started = Instant.now();
     duration = Duration.between(this.started, Instant.now());
     phaseDurations = new Long[6];
@@ -102,28 +105,43 @@ public class RequestContext {
       String[] parts = path.split("\\?");
       path = parts[0];
       if (parts.length > 1) {
-        parseQuery(URLDecoder.decode(parts[1], StandardCharsets.UTF_8));
+        queryString = URLDecoder.decode(parts[1], StandardCharsets.UTF_8);
+        parseQueryParams(queryString);
       }
     }
   }
 
-  protected void parseQuery(String decodedQuery) {
-    query = new HashMap<String, List<String>>();
+  protected void parseQueryParams(String decodedQuery) {
+    if (decodedQuery == null || decodedQuery.isEmpty()) {
+      return;
+    }
+    params = new HashMap<String, List<String>>();
     for (String param : decodedQuery.split("&")) {
       String[] keyValuePair = param.split("=");
       String key = keyValuePair[0];
       String value = keyValuePair.length == 1 ? "" : keyValuePair[1];
-      if (!query.containsKey(key)) {
-        query.put(key, new ArrayList<String>());
+      if (!params.containsKey(key)) {
+        params.put(key, new ArrayList<String>());
       }
       if (value != null && !value.isEmpty()) {
-        query.get(key).add(value);
+        params.get(key).add(value);
       }
     }
   }
 
   protected void initializeResponse(Map<String, String> headers) {
-    responseHeaders = headers;
+    responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    for (Map.Entry<String, String> entry : headers.entrySet()) {
+      if (!entry.getKey().startsWith(":")) {
+        responseHeaders.put(entry.getKey(), entry.getValue());
+      } else {
+        switch (entry.getKey()) {
+          case ":status":
+            status = Integer.parseInt(entry.getValue());
+            break;
+        }
+      }
+    }
   }
 
   protected void updateDuration(RequestCase phase, Duration duration) {
@@ -159,12 +177,32 @@ public class RequestContext {
     return requestHeaders;
   }
 
+  public String getRequestHeader(String name) {
+    return requestHeaders.get(name);
+  }
+
+  public String getRequestHeaderOrDefault(String name, String orValue) {
+    return requestHeaders.getOrDefault(name, orValue);
+  }
+
   public Map<String, String> getResponseHeaders() {
     return responseHeaders;
   }
 
+  public String getResponseHeader(String name) {
+    return responseHeaders.get(name);
+  }
+
+  public String getResponseHeaderOrDefault(String name, String orValue) {
+    return responseHeaders.getOrDefault(name, orValue);
+  }
+
   public String getScheme() {
     return scheme;
+  }
+
+  public String getDomain() {
+    return authority;
   }
 
   public String getAuthority() {
@@ -179,8 +217,22 @@ public class RequestContext {
     return path;
   }
 
-  public Map<String, List<String>> getQuery() {
-    return query;
+  public String getQueryString() {
+    if (queryString == null) {
+      return "";
+    }
+    return queryString;
+  }
+
+  public Map<String, List<String>> getParams() {
+    if (params == null) {
+      return new HashMap<String, List<String>>();
+    }
+    return params;
+  }
+
+  public int getStatus() {
+    return status;
   }
 
   public String getRequestId() {

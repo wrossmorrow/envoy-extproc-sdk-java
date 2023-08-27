@@ -1,9 +1,9 @@
-package extproc.processors;
+package com.wrossmorrow.extproc.processors;
 
-import extproc.ProcessingOptions;
-import extproc.RequestContext;
-import extproc.RequestProcessor;
-import extproc.RequestProcessorHealthManager;
+import com.wrossmorrow.extproc.ProcessingOptions;
+import com.wrossmorrow.extproc.RequestContext;
+import com.wrossmorrow.extproc.RequestProcessor;
+import com.wrossmorrow.extproc.RequestProcessorHealthManager;
 import java.util.Map;
 import java.util.logging.Logger;
 
@@ -19,6 +19,8 @@ public class EchoRequestProcessor implements RequestProcessor {
   }
 
   public void setHealthManager(RequestProcessorHealthManager health) {}
+
+  public void shutdown() {}
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     if (ctx.getPath().startsWith("/echo")) {

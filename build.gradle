@@ -4,6 +4,7 @@ plugins {
     id 'com.google.protobuf' version '0.9.1'
     id 'idea'
     id "com.diffplug.spotless" version "6.20.0"
+    id 'maven-publish'
 }
 
 repositories {
@@ -12,6 +13,9 @@ repositories {
     mavenCentral()
     mavenLocal()
 }
+
+group 'com.wrossmorrow'
+version '0.1.0'
 
 def googleJavaFormatVersion = 'v1.17.0'
 def grpcVersion = '1.57.2'
@@ -44,7 +48,7 @@ dependencies {
 }
 
 application {
-    mainClassName = "extproc.ExternalProcessorServer"
+    mainClassName = "com.wrossmorrow.extproc.ExternalProcessorServer"
 }
 
 spotless {
@@ -98,4 +102,53 @@ jar {
   from {
     configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
   }
+}
+
+publishing {
+    publications {
+        maven(MavenPublication) {
+            groupId = group
+            artifactId = 'extproc'
+            version = version
+
+            from components.java
+
+            pom {
+                name = 'Envoy ExternalProcessor SDK'
+                description = 'An SDK for building ExternalProcessors for Envoy'
+                url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
+                licenses {
+                    license {
+                        name = 'The Apache License, Version 2.0'
+                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+                    }
+                }
+                developers {
+                    developer {
+                        id = 'wrossmorrow'
+                        name = 'W. Ross Morrow'
+                        email = 'morrowwr@gmail.com'
+                    }
+                }
+                scm {
+                    connection = 'scm:git:git://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
+                    developerConnection = 'scm:git:ssh://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
+                    url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
+                }
+            }
+        }
+        
+    }
+
+  repositories {
+    maven {
+      name = "GitHubPackages"
+      url = "https://maven.pkg.github.com/wrossmorrow/extproc-sdk-java"
+      credentials {
+        username = System.getenv("GITHUB_ACTOR")
+        password = System.getenv("GITHUB_TOKEN")
+      }
+    }
+  }
+
 }

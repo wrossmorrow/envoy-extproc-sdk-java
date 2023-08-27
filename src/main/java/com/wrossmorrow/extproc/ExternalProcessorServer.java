@@ -1,4 +1,4 @@
-package extproc;
+package com.wrossmorrow.extproc;
 
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
@@ -16,6 +16,8 @@ import java.util.logging.Logger;
 /** Server that manages startup/shutdown of an {@code ExternalProcessor} server. */
 public class ExternalProcessorServer {
   private static final Logger logger = Logger.getLogger(ExternalProcessorServer.class.getName());
+  private static final String DEFAULT_EXTPROC_CLASS =
+      "com.wrossmorrow.extproc.processors.NoOpRequestProcessor";
 
   private ServerBuilder<?> builder;
   private Server server;
@@ -63,6 +65,7 @@ public class ExternalProcessorServer {
                 // Use stderr here since the logger may have been reset by its JVM shutdown hook.
                 System.err.println("shutting down gRPC server since JVM is shutting down");
                 try {
+                  processor.shutdown();
                   ExternalProcessorServer.this.stop();
                 } catch (InterruptedException e) {
                   e.printStackTrace(System.err);
@@ -91,8 +94,7 @@ public class ExternalProcessorServer {
 
   /** Instantiate a RequestProcessor from the extproc.processor_class property. */
   private static RequestProcessor getProcessorFromProperties() throws Exception {
-    String processor =
-        System.getProperty("extproc.class", "extproc.processors.NoOpRequestProcessor");
+    String processor = System.getProperty("extproc.class", DEFAULT_EXTPROC_CLASS);
     return (RequestProcessor) Class.forName(processor).getConstructor().newInstance();
   }
 

@@ -1,4 +1,4 @@
-package extproc;
+package com.wrossmorrow.extproc;
 
 import java.util.Map;
 
@@ -8,6 +8,8 @@ public interface RequestProcessor {
   public ProcessingOptions getOptions();
 
   public void setHealthManager(RequestProcessorHealthManager health);
+
+  public void shutdown();
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers);
 
