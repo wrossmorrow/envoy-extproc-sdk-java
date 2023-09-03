@@ -130,19 +130,14 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
     switch (phase) {
       case REQUEST_HEADERS:
-        Map<String, String> requestHeaders =
-            plainMapFromProtoHeaders(request.getRequestHeaders().getHeaders());
-        ctx.initializeRequest(requestHeaders);
-        if (request.getRequestHeaders().getEndOfStream()) {
-          ctx.endOfStream = true;
-        }
+        HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();
+        Map<String, String> requestHeaders = ctx.initializeRequest(protoRequestHeaders);
+        ctx.endOfStream = request.getRequestHeaders().getEndOfStream();
         processor.processRequestHeaders(ctx, requestHeaders);
         break;
       case REQUEST_BODY:
         String requestBodyString = request.getRequestBody().getBody().toStringUtf8();
-        if (request.getRequestBody().getEndOfStream()) {
-          ctx.endOfStream = true;
-        }
+        ctx.endOfStream = request.getRequestBody().getEndOfStream();
         processor.processRequestBody(ctx, requestBodyString);
         break;
       case REQUEST_TRAILERS:
@@ -151,19 +146,14 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         processor.processRequestTrailers(ctx, requestTrailers);
         break;
       case RESPONSE_HEADERS:
-        Map<String, String> responseHeaders =
-            plainMapFromProtoHeaders(request.getResponseHeaders().getHeaders());
-        ctx.initializeResponse(responseHeaders);
-        if (request.getRequestHeaders().getEndOfStream()) {
-          ctx.endOfStream = true;
-        }
+        HeaderMap protoResponseHeaders = request.getRequestHeaders().getHeaders();
+        Map<String, String> responseHeaders = ctx.initializeResponse(protoResponseHeaders);
+        ctx.endOfStream = request.getRequestHeaders().getEndOfStream();
         processor.processResponseHeaders(ctx, responseHeaders);
         break;
       case RESPONSE_BODY:
         String responseBodyString = request.getResponseBody().getBody().toStringUtf8();
-        if (request.getResponseBody().getEndOfStream()) {
-          ctx.endOfStream = true;
-        }
+        ctx.endOfStream = request.getResponseBody().getEndOfStream();
         processor.processResponseBody(ctx, responseBodyString);
         break;
       case RESPONSE_TRAILERS:

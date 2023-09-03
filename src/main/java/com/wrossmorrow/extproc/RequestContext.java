@@ -1,5 +1,7 @@
 package com.wrossmorrow.extproc;
 
+import build.buf.gen.envoy.config.core.v3.HeaderMap;
+import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyResponse;
@@ -25,6 +27,7 @@ import java.util.Map;
 import java.util.TreeMap;
 
 public class RequestContext {
+
   protected Instant started;
   protected Duration duration;
   protected Long[] phaseDurations;
@@ -70,33 +73,42 @@ public class RequestContext {
     bodyMutation = BodyMutation.newBuilder().build();
   }
 
-  protected void initializeRequest(Map<String, String> headers) {
+  // protected void initializeRequest(Map<String, String> headers) {
+  // for (Map.Entry<String, String> entry : headers.entrySet()) {
+  protected Map<String, String> initializeRequest(HeaderMap protoHeaders) {
     requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-    for (Map.Entry<String, String> entry : headers.entrySet()) {
-      if (!entry.getKey().startsWith(":")) {
-        requestHeaders.put(entry.getKey(), entry.getValue());
-        if (entry.getKey().equalsIgnoreCase("x-request-id")) {
-          requestId = headers.get("x-request-id");
+    for (HeaderValue hv : protoHeaders.getHeadersList()) {
+      final String key = hv.getKey();
+      final String value = hv.getValue();
+      if (!key.startsWith(":")) {
+        switch (key) {
+          case "x-request-id":
+            requestId = value;
+            break;
+          default:
+            requestHeaders.put(key, value);
+            break;
         }
       } else {
-        switch (entry.getKey()) {
+        switch (key) {
           case ":scheme":
-            scheme = entry.getValue();
+            scheme = value;
             break;
           case ":authority":
-            authority = entry.getValue();
+            authority = value;
             break;
           case ":method":
-            method = entry.getValue();
+            method = value;
             break;
           case ":path":
-            parsePath(entry.getValue());
+            parsePath(value);
             break;
           default:
             break;
         }
       }
     }
+    return requestHeaders;
   }
 
   protected void parsePath(String rawPath) {
@@ -129,19 +141,22 @@ public class RequestContext {
     }
   }
 
-  protected void initializeResponse(Map<String, String> headers) {
+  protected Map<String, String> initializeResponse(HeaderMap headers) {
     responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
-    for (Map.Entry<String, String> entry : headers.entrySet()) {
-      if (!entry.getKey().startsWith(":")) {
-        responseHeaders.put(entry.getKey(), entry.getValue());
+    for (HeaderValue hv : headers.getHeadersList()) {
+      final String key = hv.getKey();
+      final String value = hv.getValue();
+      if (!key.startsWith(":")) {
+        responseHeaders.put(key, value);
       } else {
-        switch (entry.getKey()) {
+        switch (key) {
           case ":status":
-            status = Integer.parseInt(entry.getValue());
+            status = Integer.parseInt(value);
             break;
         }
       }
     }
+    return responseHeaders;
   }
 
   protected void updateDuration(RequestCase phase, Duration duration) {

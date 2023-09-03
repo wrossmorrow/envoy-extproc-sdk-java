@@ -1,21 +1,21 @@
 plugins {
-    id 'java'
-    id 'application'
-    id 'com.google.protobuf' version '0.9.1'
-    id 'idea'
-    id "com.diffplug.spotless" version "6.20.0"
-    id 'maven-publish'
+  id 'java'
+  id 'application'
+  id 'com.google.protobuf' version '0.9.1'
+  id 'idea'
+  id "com.diffplug.spotless" version "6.20.0"
+  id 'maven-publish'
 }
 
 repositories {
-    maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
-    maven { url 'https://buf.build/gen/maven' }
-    mavenCentral()
-    mavenLocal()
+  maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+  maven { url 'https://buf.build/gen/maven' }
+  mavenCentral()
+  mavenLocal()
 }
 
 group 'com.wrossmorrow'
-version '0.1.0'
+version '0.1.1'
 
 def googleJavaFormatVersion = 'v1.17.0'
 def grpcVersion = '1.57.2'
@@ -24,31 +24,30 @@ def protocVersion = protobufVersion
 
 dependencies {
 
-    // implementation 'com.google.guava:guava:31.1-jre'
+  // implementation 'com.google.guava:guava:31.1-jre'
 
-    implementation "io.grpc:grpc-protobuf:${grpcVersion}"
-    implementation "io.grpc:grpc-services:${grpcVersion}"
-    implementation "io.grpc:grpc-stub:${grpcVersion}"
-    compileOnly "org.apache.tomcat:annotations-api:6.0.53"
+  implementation "io.grpc:grpc-protobuf:${grpcVersion}"
+  implementation "io.grpc:grpc-services:${grpcVersion}"
+  implementation "io.grpc:grpc-stub:${grpcVersion}"
+  compileOnly "org.apache.tomcat:annotations-api:6.0.53"
 
-    implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
+  implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
 
-    implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.57.2.1.20230817201313.e75e636e2bd4'
-    implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:24.0.0.1.20230817201313.e75e636e2bd4'
-    implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.57.2.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:24.0.0.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
 
-    runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
-    
-    testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
-
-    testImplementation "io.grpc:grpc-testing:${grpcVersion}"
-    testImplementation "junit:junit:4.13.2"
-    testImplementation "org.mockito:mockito-core:3.4.0"
+  runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
+  
+  testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
+  testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+  testImplementation "junit:junit:4.13.2"
+  testImplementation "org.mockito:mockito-core:3.4.0"
 
 }
 
 application {
-    mainClassName = "com.wrossmorrow.extproc.ExternalProcessorServer"
+  mainClassName = "com.wrossmorrow.extproc.ExternalProcessorServer"
 }
 
 spotless {
@@ -105,40 +104,39 @@ jar {
 }
 
 publishing {
-    publications {
-        maven(MavenPublication) {
-            groupId = group
-            artifactId = 'extproc'
-            version = version
+  publications {
+    maven(MavenPublication) {
+      groupId = group
+      artifactId = 'extproc'
+      version = version
 
-            from components.java
+      from components.java
 
-            pom {
-                name = 'Envoy ExternalProcessor SDK'
-                description = 'An SDK for building ExternalProcessors for Envoy'
-                url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
-                licenses {
-                    license {
-                        name = 'The Apache License, Version 2.0'
-                        url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
-                    }
-                }
-                developers {
-                    developer {
-                        id = 'wrossmorrow'
-                        name = 'W. Ross Morrow'
-                        email = 'morrowwr@gmail.com'
-                    }
-                }
-                scm {
-                    connection = 'scm:git:git://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
-                    developerConnection = 'scm:git:ssh://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
-                    url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
-                }
-            }
+      pom {
+        name = 'Envoy ExternalProcessor SDK'
+        description = 'An SDK for building ExternalProcessors for Envoy'
+        url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
+        licenses {
+          license {
+            name = 'The Apache License, Version 2.0'
+            url = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+          }
         }
-        
+        developers {
+          developer {
+            id = 'wrossmorrow'
+            name = 'W. Ross Morrow'
+            email = 'morrowwr@gmail.com'
+          }
+        }
+        scm {
+          connection = 'scm:git:git://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
+          developerConnection = 'scm:git:ssh://github.com/wrossmorrow/envoy-extproc-sdk-java.git'
+          url = 'https://github.com/wrossmorrow/envoy-extproc-sdk-java'
+        }
+      }
     }
+  }
 
   repositories {
     maven {
