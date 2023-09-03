@@ -3,7 +3,7 @@ package main
 import (
 	"encoding/json"
 	"flag"
-	"io/ioutil"
+	"io"
 	"log"
 	"net/http"
 	"strings"
@@ -38,7 +38,7 @@ func echo(w http.ResponseWriter, req *http.Request) {
 		Duration: time.Duration(0).Nanoseconds(),
 	}
 	if req.Body != nil {
-		bodyBytes, err := ioutil.ReadAll(req.Body)
+		bodyBytes, err := io.ReadAll(req.Body)
 		if err != nil {
 			log.Printf("Body reading error: %v", err)
 			return
@@ -55,6 +55,10 @@ func echo(w http.ResponseWriter, req *http.Request) {
 	}
 
 	r.Duration = time.Since(started).Nanoseconds()
+
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "HEAD, OPTIONS, GET, PUT, POST, DELETE")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
 	rb, _ := json.Marshal(r)
 	w.Write(rb)

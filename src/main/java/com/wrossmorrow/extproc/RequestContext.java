@@ -80,16 +80,7 @@ public class RequestContext {
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
       final String key = hv.getKey();
       final String value = hv.getValue();
-      if (!key.startsWith(":")) {
-        switch (key) {
-          case "x-request-id":
-            requestId = value;
-            break;
-          default:
-            requestHeaders.put(key, value);
-            break;
-        }
-      } else {
+      if (key.startsWith(":")) {
         switch (key) {
           case ":scheme":
             scheme = value;
@@ -104,6 +95,15 @@ public class RequestContext {
             parsePath(value);
             break;
           default:
+            break;
+        }
+      } else {
+        switch (key) {
+          case "x-request-id":
+            requestId = value;
+            break;
+          default:
+            requestHeaders.put(key, value);
             break;
         }
       }
@@ -146,14 +146,16 @@ public class RequestContext {
     for (HeaderValue hv : headers.getHeadersList()) {
       final String key = hv.getKey();
       final String value = hv.getValue();
-      if (!key.startsWith(":")) {
-        responseHeaders.put(key, value);
-      } else {
+      if (key.startsWith(":")) {
         switch (key) {
           case ":status":
             status = Integer.parseInt(value);
             break;
+          default:
+            break;
         }
+      } else {
+        responseHeaders.put(key, value);
       }
     }
     return responseHeaders;

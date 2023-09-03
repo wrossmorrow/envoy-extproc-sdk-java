@@ -146,9 +146,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         processor.processRequestTrailers(ctx, requestTrailers);
         break;
       case RESPONSE_HEADERS:
-        HeaderMap protoResponseHeaders = request.getRequestHeaders().getHeaders();
+        HeaderMap protoResponseHeaders = request.getResponseHeaders().getHeaders();
         Map<String, String> responseHeaders = ctx.initializeResponse(protoResponseHeaders);
-        ctx.endOfStream = request.getRequestHeaders().getEndOfStream();
+        ctx.endOfStream = request.getResponseHeaders().getEndOfStream();
         processor.processResponseHeaders(ctx, responseHeaders);
         break;
       case RESPONSE_BODY:
