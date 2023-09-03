@@ -60,8 +60,14 @@ func echo(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Access-Control-Allow-Methods", "HEAD, OPTIONS, GET, PUT, POST, DELETE")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
 
-	rb, _ := json.Marshal(r)
-	w.Write(rb)
+	if req.Method == "OPTIONS" || req.Method == "HEAD" {
+		w.Header().Set("Content-Length", "0")
+		w.Write([]byte{})
+	} else {
+		rb, _ := json.Marshal(r)
+		w.Write(rb)
+	}
+
 }
 
 func main() {

@@ -34,7 +34,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.NoOpRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.NoOpRequestProcessor
       - -jar
       - /extproc/extproc.jar
     restart: always
@@ -44,7 +44,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.TrivialRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.TrivialRequestProcessor
       - -jar
       - /extproc/extproc.jar
     restart: always
@@ -54,7 +54,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.TimerRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.TimerRequestProcessor
       - -jar
       - /extproc/extproc.jar
     restart: always
@@ -64,7 +64,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.DigestRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DigestRequestProcessor
       - -jar
       - /extproc/extproc.jar
   dedup:
@@ -73,7 +73,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.DedupRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DedupRequestProcessor
       - -jar
       - /extproc/extproc.jar
   # masker:
@@ -87,7 +87,7 @@ services:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
-      - -Dextproc.class=com.wrossmorrow.extproc.processors.EchoRequestProcessor
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.EchoRequestProcessor
       - -jar
       - /extproc/extproc.jar
     restart: always

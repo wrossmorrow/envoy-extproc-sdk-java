@@ -1,9 +1,9 @@
-package com.wrossmorrow.extproc.processors;
+package com.github.wrossmorrow.extproc.processors;
 
-import com.wrossmorrow.extproc.ProcessingOptions;
-import com.wrossmorrow.extproc.RequestContext;
-import com.wrossmorrow.extproc.RequestProcessor;
-import com.wrossmorrow.extproc.RequestProcessorHealthManager;
+import com.github.wrossmorrow.extproc.ProcessingOptions;
+import com.github.wrossmorrow.extproc.RequestContext;
+import com.github.wrossmorrow.extproc.RequestProcessor;
+import com.github.wrossmorrow.extproc.RequestProcessorHealthManager;
 import java.util.Map;
 
 public class NoOpRequestProcessor implements RequestProcessor {

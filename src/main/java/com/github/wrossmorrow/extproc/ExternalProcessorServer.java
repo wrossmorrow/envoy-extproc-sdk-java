@@ -1,4 +1,4 @@
-package com.wrossmorrow.extproc;
+package com.github.wrossmorrow.extproc;
 
 import io.grpc.Grpc;
 import io.grpc.InsecureServerCredentials;
@@ -17,7 +17,7 @@ import java.util.logging.Logger;
 public class ExternalProcessorServer {
   private static final Logger logger = Logger.getLogger(ExternalProcessorServer.class.getName());
   private static final String DEFAULT_EXTPROC_CLASS =
-      "com.wrossmorrow.extproc.processors.NoOpRequestProcessor";
+      "com.github.wrossmorrow.extproc.processors.NoOpRequestProcessor";
 
   private ServerBuilder<?> builder;
   private Server server;

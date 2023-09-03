@@ -1,4 +1,4 @@
-package com.wrossmorrow.extproc;
+package com.github.wrossmorrow.extproc;
 
 import static org.junit.jupiter.api.Assertions.*;
 

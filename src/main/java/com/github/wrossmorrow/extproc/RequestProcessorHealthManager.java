@@ -1,4 +1,4 @@
-package com.wrossmorrow.extproc;
+package com.github.wrossmorrow.extproc;
 
 public interface RequestProcessorHealthManager {
   public void serving();

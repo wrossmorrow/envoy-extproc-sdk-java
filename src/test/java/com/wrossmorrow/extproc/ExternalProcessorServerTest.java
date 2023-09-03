@@ -1,8 +1,8 @@
-package com.wrossmorrow.extproc;
+package com.github.wrossmorrow.extproc;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.wrossmorrow.extproc.processors.NoOpRequestProcessor;
+import com.github.wrossmorrow.extproc.processors.NoOpRequestProcessor;
 import java.io.IOException;
 import org.junit.jupiter.api.Test;
 
