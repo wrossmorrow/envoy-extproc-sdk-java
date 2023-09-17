@@ -17,7 +17,9 @@ public class NoOpRequestProcessor implements RequestProcessor {
 
   public void setHealthManager(RequestProcessorHealthManager health) {}
 
-  public void shutdown() {}
+  public void shutdown() {
+    System.out.println(this.getClass().getCanonicalName() + " shutting down");
+  }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     for (Map.Entry<String, String> entry : headers.entrySet()) {

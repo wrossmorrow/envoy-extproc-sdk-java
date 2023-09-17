@@ -26,10 +26,7 @@ services:
 
   # extprocs
   noop:
-    image: envoy-extproc-sdk-java
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -39,7 +36,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   trivial:
-    image: envoy-extproc-sdk-java
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -49,7 +46,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   timer:
-    image: envoy-extproc-sdk-java
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -59,7 +56,7 @@ services:
       - /extproc/extproc.jar
     restart: always
   digest:
-    image: envoy-extproc-sdk-java
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -67,8 +64,9 @@ services:
       - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DigestRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
   dedup:
-    image: envoy-extproc-sdk-java
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -76,13 +74,14 @@ services:
       - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DedupRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    restart: always
   # masker:
   #   image: envoy-extproc-sdk-java:
   #   command:
   #     - /extproc
   #     - masker
   echo:
-    image: envoy-extproc-sdk-java
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true

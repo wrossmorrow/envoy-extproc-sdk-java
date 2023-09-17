@@ -18,7 +18,9 @@ public class TrivialRequestProcessor implements RequestProcessor {
 
   public void setHealthManager(RequestProcessorHealthManager health) {}
 
-  public void shutdown() {}
+  public void shutdown() {
+    System.out.println(this.getClass().getCanonicalName() + " shutting down");
+  }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     ctx.addHeader("x-extproc-request-seen", "true");

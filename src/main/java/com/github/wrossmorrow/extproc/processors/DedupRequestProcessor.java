@@ -25,7 +25,9 @@ public class DedupRequestProcessor implements RequestProcessor {
 
   public void setHealthManager(RequestProcessorHealthManager health) {}
 
-  public void shutdown() {}
+  public void shutdown() {
+    System.out.println(this.getClass().getCanonicalName() + " shutting down");
+  }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     if (ctx.getRequestHeaders().containsKey("x-extproc-request-digest")) {

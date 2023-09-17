@@ -10,7 +10,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
-import java.util.function.Function;
 import java.util.logging.Logger;
 
 /** Server that manages startup/shutdown of an {@code ExternalProcessor} server. */
@@ -24,7 +23,7 @@ public class ExternalProcessorServer {
   private HealthStatusManager health;
   private int port = 50051;
   private int gracePeriodSeconds = 30;
-  protected List<Function<Void, Void>> hooks = new ArrayList<Function<Void, Void>>();
+  protected List<Runnable> hooks = new ArrayList<Runnable>();
   protected RequestProcessor processor;
 
   public ExternalProcessorServer builder() {
@@ -41,10 +40,10 @@ public class ExternalProcessorServer {
 
   public ExternalProcessorServer addRequestProcessor(RequestProcessor processor) {
     builder.addService(new ExternalProcessor(processor, health));
-    return this;
+    return addShutdownCallback(() -> processor.shutdown());
   }
 
-  public ExternalProcessorServer addShutdownCallback(Function<Void, Void> callback) {
+  public ExternalProcessorServer addShutdownCallback(Runnable callback) {
     hooks.add(callback);
     return this;
   }
@@ -65,7 +64,6 @@ public class ExternalProcessorServer {
                 // Use stderr here since the logger may have been reset by its JVM shutdown hook.
                 System.err.println("shutting down gRPC server since JVM is shutting down");
                 try {
-                  processor.shutdown();
                   ExternalProcessorServer.this.stop();
                 } catch (InterruptedException e) {
                   e.printStackTrace(System.err);
@@ -78,10 +76,10 @@ public class ExternalProcessorServer {
 
   public void stop() throws InterruptedException {
     if (server != null) {
-      server.shutdown().awaitTermination(gracePeriodSeconds, TimeUnit.SECONDS);
-      for (Function<Void, Void> hook : hooks) {
-        hook.apply(null);
+      for (Runnable hook : hooks) {
+        hook.run();
       }
+      server.shutdown().awaitTermination(gracePeriodSeconds, TimeUnit.SECONDS);
     }
   }
 

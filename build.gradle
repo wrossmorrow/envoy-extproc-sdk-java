@@ -15,7 +15,7 @@ repositories {
 }
 
 group 'com.github.wrossmorrow'
-version '0.1.1'
+version '0.1.2'
 
 def googleJavaFormatVersion = 'v1.17.0'
 def grpcVersion = '1.57.2'
