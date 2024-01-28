@@ -75,6 +75,8 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
+    ports:
+      - "60061:50051"
   # masker:
   #   image: envoy-extproc-sdk-java:
   #   command:
