@@ -20,6 +20,12 @@ repositories {
   mavenLocal()
 }
 
+<<<<<<< Updated upstream
+=======
+group 'com.github.wrossmorrow'
+version '0.1.3'
+
+>>>>>>> Stashed changes
 def googleJavaFormatVersion = 'v1.17.0'
 def grpcVersion = '1.57.2'
 def protobufVersion = '3.22.3'
