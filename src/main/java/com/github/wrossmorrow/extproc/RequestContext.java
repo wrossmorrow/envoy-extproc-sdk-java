@@ -28,6 +28,8 @@ import java.util.TreeMap;
 
 public class RequestContext {
 
+  private final String requestIdHeaderName;
+
   protected Instant started;
   protected Duration duration;
   protected Long[] phaseDurations;
@@ -53,6 +55,11 @@ public class RequestContext {
   ImmediateResponse immediateResponse;
 
   public RequestContext() {
+    this("x-request-id");
+  }
+
+  public RequestContext(String requestIdHeaderName) {
+    this.requestIdHeaderName = requestIdHeaderName;
     status = 0;
     started = Instant.now();
     duration = Duration.between(this.started, Instant.now());
@@ -98,13 +105,10 @@ public class RequestContext {
             break;
         }
       } else {
-        switch (key) {
-          case "x-request-id":
-            requestId = value;
-            break;
-          default:
-            requestHeaders.put(key, value);
-            break;
+        if (key.equalsIgnoreCase(requestIdHeaderName)) {
+          requestId = value;
+        } else {
+          requestHeaders.put(key, value);
         }
       }
     }

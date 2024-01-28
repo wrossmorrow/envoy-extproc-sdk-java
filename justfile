@@ -2,6 +2,9 @@ registry := "ghcr.io"
 image_group := "wrossmorrow"
 image_name := "envoy-extproc-sdk-java"
 
+default:
+    just --list
+
 # clean build
 clean:
     ./gradlew clean

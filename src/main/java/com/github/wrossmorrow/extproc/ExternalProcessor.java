@@ -20,38 +20,16 @@ import java.util.logging.Logger;
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
   private static final Logger _logger = Logger.getLogger(ExternalProcessor.class.getName());
 
-  protected RequestProcessor processor;
-  protected String procname;
-  protected ProcessingOptions options;
-  protected HealthStatusManager health;
-  protected Logger logger;
+  private static final String X_EXTPROC_DURATION_NS = "x-extproc-duration-ns";
 
-  public ExternalProcessor(RequestProcessor processor, HealthStatusManager health) {
-    this.processor = processor;
-    this.health = health;
-    this.logger = _logger;
-    this.processor.setHealthManager(new InternalHealthManager());
-    defineOptions();
-  }
+  /** internal implementation of status management */
+  private class InternalHealthManager implements RequestProcessorHealthManager {
 
-  public ExternalProcessor(RequestProcessor processor, HealthStatusManager health, Logger logger) {
-    this.processor = processor;
-    this.health = health;
-    this.logger = logger;
-    this.processor.setHealthManager(new InternalHealthManager());
-    defineOptions();
-  }
+    private HealthStatusManager health;
 
-  protected void defineOptions() {
-    procname = processor.getName();
-    options = processor.getOptions();
-    logger.info("Setting up ExternalProcessor with " + procname + " and options " + options);
-  }
-
-  /*
-   * Health status management
-   */
-  public class InternalHealthManager implements RequestProcessorHealthManager {
+    public InternalHealthManager(HealthStatusManager health) {
+      this.health = health;
+    }
 
     @Override
     public void serving() {
@@ -75,6 +53,34 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     }
   }
 
+  protected RequestProcessor processor;
+  protected String procname;
+  protected ProcessingOptions options;
+  protected HealthStatusManager health;
+  protected Logger logger;
+
+  public ExternalProcessor(RequestProcessor processor, HealthStatusManager health) {
+    this.processor = processor;
+    this.health = health;
+    this.logger = _logger;
+    this.processor.setHealthManager(new InternalHealthManager(health));
+    defineOptions();
+  }
+
+  public ExternalProcessor(RequestProcessor processor, HealthStatusManager health, Logger logger) {
+    this.processor = processor;
+    this.health = health;
+    this.logger = logger;
+    this.processor.setHealthManager(new InternalHealthManager(health));
+    defineOptions();
+  }
+
+  protected void defineOptions() {
+    procname = processor.getName();
+    options = processor.getOptions();
+    logger.fine("Setting up ExternalProcessor with " + procname + " and options " + options);
+  }
+
   @Override
   public StreamObserver<ProcessingRequest> process(
       final StreamObserver<ProcessingResponse> responseObserver) {
@@ -96,12 +102,10 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
             responseObserver.onCompleted();
           } else {
             logger.severe("Encountered error in processing: " + err);
-            System.err.println("Encountered error in processing: " + err);
             responseObserver.onError(sre);
           }
         } else {
           logger.severe("Encountered error in processing: " + err);
-          System.err.println("Encountered error in processing: " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
@@ -172,12 +176,16 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_HEADERS:
       case REQUEST_BODY:
       case REQUEST_TRAILERS:
-        addUpstreamExtProcHeaders(ctx);
+        if (options.upstreamDurationHeader) {
+          addUpstreamExtProcHeaders(ctx);
+        }
         break;
       case RESPONSE_HEADERS:
       case RESPONSE_BODY:
       case RESPONSE_TRAILERS:
-        addDownstreamExtProcHeaders(ctx);
+        if (options.downstreamDurationHeader) {
+          addDownstreamExtProcHeaders(ctx);
+        }
         break;
       default:
         break;
@@ -187,19 +195,15 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
   }
 
   protected void addUpstreamExtProcHeaders(RequestContext ctx) {
-    if (options.upstreamDurationHeader) {
-      final String existing = ctx.requestHeaders.getOrDefault("x-extproc-duration-ns", "");
-      final Long nanos = ctx.duration.toNanos();
-      ctx.overwriteHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
-    }
+    final String existing = ctx.requestHeaders.getOrDefault(X_EXTPROC_DURATION_NS, "");
+    final Long nanos = ctx.duration.toNanos();
+    ctx.overwriteHeader(X_EXTPROC_DURATION_NS, durationHeaderValue(existing, nanos));
   }
 
   protected void addDownstreamExtProcHeaders(RequestContext ctx) {
-    if (options.downstreamDurationHeader) {
-      final String existing = ctx.responseHeaders.getOrDefault("x-extproc-duration-ns", "");
-      final Long nanos = ctx.duration.toNanos();
-      ctx.overwriteHeader("x-extproc-duration-ns", durationHeaderValue(existing, nanos));
-    }
+    final String existing = ctx.responseHeaders.getOrDefault(X_EXTPROC_DURATION_NS, "");
+    final Long nanos = ctx.duration.toNanos();
+    ctx.overwriteHeader(X_EXTPROC_DURATION_NS, durationHeaderValue(existing, nanos));
   }
 
   protected String durationHeaderValue(String existing, Long nanos) {
@@ -220,7 +224,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     return existing + "," + current;
   }
 
-  protected Map<String, String> plainMapFromProtoHeaders(HeaderMap protoHeaders) {
+  protected static Map<String, String> plainMapFromProtoHeaders(HeaderMap protoHeaders) {
     Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
       headers.put(hv.getKey(), hv.getValue());
