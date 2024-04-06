@@ -88,9 +88,14 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     RequestContext ctx = new RequestContext();
 
     return new StreamObserver<ProcessingRequest>() {
+
       @Override
       public void onNext(ProcessingRequest request) {
-        responseObserver.onNext(processPhase(request, ctx));
+        try {
+          responseObserver.onNext(processPhase(request, ctx));
+        } catch (Throwable t) {
+          onError(t);
+        }
       }
 
       @Override
@@ -98,14 +103,14 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         if (err instanceof StatusRuntimeException) {
           StatusRuntimeException sre = (StatusRuntimeException) err;
           if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
-            logger.fine("Processing stream cancelled");
+            logger.fine("Request processing stream cancelled");
             responseObserver.onCompleted();
           } else {
             logger.severe("Encountered error in processing: " + err);
             responseObserver.onError(sre);
           }
         } else {
-          logger.severe("Encountered error in processing: " + err);
+          logger.severe("Encountered internal error in processing: " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
@@ -128,8 +133,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       ctx.reset();
     }
 
+    logger.fine("" + procname + " Processing " + phase.toString());
     if (options.logPhases) {
-      logger.info("ExtProc " + procname + " Processing " + phase.toString());
+      logger.info("" + procname + " Processing " + phase.toString());
     }
 
     switch (phase) {
@@ -166,7 +172,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         processor.processResponseTrailers(ctx, responseTrailers);
         break;
       default:
-        throw new RuntimeException("Unknown request type");
+        throw new RuntimeException("Unknown processing request type in " + phase);
     }
 
     // we're not capturing response serialization time here, but we can't include
@@ -177,6 +183,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_BODY:
       case REQUEST_TRAILERS:
         if (options.upstreamDurationHeader) {
+          logger.fine("Adding upstream duration headers");
           addUpstreamExtProcHeaders(ctx);
         }
         break;
@@ -184,6 +191,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case RESPONSE_BODY:
       case RESPONSE_TRAILERS:
         if (options.downstreamDurationHeader) {
+          logger.fine("Adding downstream duration headers");
           addDownstreamExtProcHeaders(ctx);
         }
         break;
@@ -206,6 +214,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     ctx.overwriteHeader(X_EXTPROC_DURATION_NS, durationHeaderValue(existing, nanos));
   }
 
+  /** return an appended/updated duration header; never returns null */
   protected String durationHeaderValue(String existing, Long nanos) {
     final String current = procname + "=" + String.valueOf(nanos);
     if (existing.isEmpty()) {
@@ -224,8 +233,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     return existing + "," + current;
   }
 
+  /** case-insensitive keyed map of headers; never returns null */
   protected static Map<String, String> plainMapFromProtoHeaders(HeaderMap protoHeaders) {
     Map<String, String> headers = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    if (protoHeaders == null) {
+      return headers;
+    }
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
       headers.put(hv.getKey(), hv.getValue());
     }

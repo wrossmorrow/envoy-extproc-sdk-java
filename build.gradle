@@ -8,7 +8,7 @@ plugins {
 }
 
 group 'com.github.wrossmorrow'
-version '0.1.3'
+version '0.1.4'
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
@@ -26,8 +26,6 @@ def protobufVersion = '3.22.3'
 def protocVersion = protobufVersion
 
 dependencies {
-
-  // implementation 'com.google.guava:guava:31.1-jre'
 
   implementation "io.grpc:grpc-protobuf:${grpcVersion}"
   implementation "io.grpc:grpc-services:${grpcVersion}"

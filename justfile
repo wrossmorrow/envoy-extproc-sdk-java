@@ -21,6 +21,11 @@ test *flags:
 build *flags:
     ./gradlew build {{flags}}
 
+# run
+run *props:
+    java -Djava.util.logging.config.file=logging.properties \
+        {{props}} -jar build/libs/extproc-*.jar
+
 # containerize
 containerize tag="local" *flags="":
     docker build . -t {{registry}}/{{image_group}}/{{image_name}}:{{tag}} {{flags}}

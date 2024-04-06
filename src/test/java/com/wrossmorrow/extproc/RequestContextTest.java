@@ -102,6 +102,8 @@ class ContextTest {
     ctx.addHeader("header1", "value");
     ctx.addHeader("header2", "value");
     ctx.removeHeader("header3");
+    assertEquals(ctx.addHeaders.size(), 2);
+    assertEquals(ctx.removeHeaders.size(), 1);
 
     ctx.reset();
     assertEquals(ctx.addHeaders.size(), 0);

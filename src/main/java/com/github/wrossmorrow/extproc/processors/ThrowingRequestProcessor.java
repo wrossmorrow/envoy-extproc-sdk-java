@@ -6,9 +6,10 @@ import com.github.wrossmorrow.extproc.RequestProcessor;
 import com.github.wrossmorrow.extproc.RequestProcessorHealthManager;
 import java.util.Map;
 
-public class NoOpRequestProcessor implements RequestProcessor {
+public class ThrowingRequestProcessor implements RequestProcessor {
+
   public String getName() {
-    return "noop";
+    return "throwing";
   }
 
   public ProcessingOptions getOptions() {
@@ -21,7 +22,11 @@ public class NoOpRequestProcessor implements RequestProcessor {
     System.out.println(this.getClass().getCanonicalName() + " shutting down");
   }
 
-  public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {}
+  public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
+    if (headers.containsKey("x-throw-exception")) {
+      throw new RuntimeException("request header handling exception");
+    }
+  }
 
   public void processRequestBody(RequestContext ctx, String body) {}
 

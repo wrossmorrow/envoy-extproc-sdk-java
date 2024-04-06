@@ -55,6 +55,16 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
+  throwing:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.ThrowingRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
   digest:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
@@ -75,13 +85,6 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
-    ports:
-      - "60061:50051"
-  # masker:
-  #   image: envoy-extproc-sdk-java:
-  #   command:
-  #     - /extproc
-  #     - masker
   echo:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:

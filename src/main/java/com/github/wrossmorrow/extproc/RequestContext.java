@@ -30,9 +30,10 @@ public class RequestContext {
 
   private final String requestIdHeaderName;
 
+  protected long[] phaseDurations = {0L, 0L, 0L, 0L, 0L, 0L};
+
   protected Instant started;
   protected Duration duration;
-  protected Long[] phaseDurations;
   protected String scheme;
   protected String authority;
   protected String method;
@@ -48,9 +49,9 @@ public class RequestContext {
   protected List<HeaderValueOption> addHeaders;
   protected List<String> removeHeaders;
 
-  protected Boolean finished;
-  protected Boolean replace;
-  protected Boolean cancelled;
+  protected boolean finished;
+  protected boolean replace;
+  protected boolean cancelled;
   BodyMutation bodyMutation;
   ImmediateResponse immediateResponse;
 
@@ -60,13 +61,15 @@ public class RequestContext {
 
   public RequestContext(String requestIdHeaderName) {
     this.requestIdHeaderName = requestIdHeaderName;
+    initialize();
+  }
+
+  protected void initialize() {
     status = 0;
     started = Instant.now();
-    duration = Duration.between(this.started, Instant.now());
-    phaseDurations = new Long[6];
-    for (int i = 0; i < phaseDurations.length; i++) {
-      phaseDurations[i] = 0L;
-    }
+    duration = Duration.ZERO;
+    requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     reset();
   }
 
@@ -80,41 +83,41 @@ public class RequestContext {
     bodyMutation = BodyMutation.newBuilder().build();
   }
 
-  // protected void initializeRequest(Map<String, String> headers) {
-  // for (Map.Entry<String, String> entry : headers.entrySet()) {
+  /** context initialization routine */
   protected Map<String, String> initializeRequest(HeaderMap protoHeaders) {
-    requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    // if (protoHeaders == null) { ... } // this is a problem, not initializable
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
-      final String key = hv.getKey();
-      final String value = hv.getValue();
+      final String key = hv.getKey(); // not null
+      final String val = hv.getValue(); // not null
       if (key.startsWith(":")) {
         switch (key) {
           case ":scheme":
-            scheme = value;
+            scheme = val;
             break;
           case ":authority":
-            authority = value;
+            authority = val;
             break;
           case ":method":
-            method = value;
+            method = val;
             break;
           case ":path":
-            parsePath(value);
+            parsePath(val);
             break;
           default:
             break;
         }
       } else {
         if (key.equalsIgnoreCase(requestIdHeaderName)) {
-          requestId = value;
+          requestId = val;
         } else {
-          requestHeaders.put(key, value);
+          requestHeaders.put(key, val);
         }
       }
     }
     return requestHeaders;
   }
 
+  /** parse a URL path */
   protected void parsePath(String rawPath) {
     path = rawPath;
     if (path.contains("?")) {
@@ -127,6 +130,7 @@ public class RequestContext {
     }
   }
 
+  /** parse query parameters into a map */
   protected void parseQueryParams(String decodedQuery) {
     if (decodedQuery == null || decodedQuery.isEmpty()) {
       return;
@@ -146,20 +150,23 @@ public class RequestContext {
   }
 
   protected Map<String, String> initializeResponse(HeaderMap headers) {
-    responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    if (headers == null) {
+      // only issue here is that we don't know the status...
+      return responseHeaders;
+    }
     for (HeaderValue hv : headers.getHeadersList()) {
-      final String key = hv.getKey();
-      final String value = hv.getValue();
+      final String key = hv.getKey(); // not null
+      final String val = hv.getValue(); // not null
       if (key.startsWith(":")) {
         switch (key) {
           case ":status":
-            status = Integer.parseInt(value);
+            status = Integer.parseInt(val); // NaN?
             break;
           default:
             break;
         }
       } else {
-        responseHeaders.put(key, value);
+        responseHeaders.put(key, val);
       }
     }
     return responseHeaders;
@@ -168,7 +175,7 @@ public class RequestContext {
   protected void updateDuration(RequestCase phase, Duration duration) {
     // technically, phase.getNumber()-2 would work, but this is more readable
     // and doesn't depend on the generated code for the derived Enum RequestCase
-    Long nanos = duration.toNanos();
+    final Long nanos = duration.toNanos();
     switch (phase) {
       case REQUEST_HEADERS:
         phaseDurations[0] = nanos;
@@ -298,6 +305,7 @@ public class RequestContext {
     cancelRequest(status, null, body);
   }
 
+  /** NOTE: immediate response only accepts string bodies */
   public void cancelRequest(int status, Map<String, String> headers, String body) {
     cancelled = true;
     if (headers != null) {
@@ -311,10 +319,11 @@ public class RequestContext {
                     .addAllSetHeaders(addHeaders)
                     .addAllRemoveHeaders(removeHeaders)
                     .build())
-            .setBody(body)
+            .setBody(body == null ? "" : body)
             .build();
   }
 
+  /** return the response for a given phase; will not return null but may throw */
   public ProcessingResponse getResponse(RequestCase phase) {
 
     if (cancelled) {
@@ -384,40 +393,50 @@ public class RequestContext {
   }
 
   public void appendHeader(String name, String value) {
-    this.updateHeader(name, value, "APPEND_IF_EXISTS_OR_ADD");
+    this.updateHeader(name, value, HeaderValueOption.HeaderAppendAction.APPEND_IF_EXISTS_OR_ADD);
   }
 
   public void addHeader(String name, String value) {
-    this.updateHeader(name, value, "ADD_IF_ABSENT");
+    this.updateHeader(name, value, HeaderValueOption.HeaderAppendAction.ADD_IF_ABSENT);
   }
 
   public void overwriteHeader(String name, String value) {
-    this.updateHeader(name, value, "OVERWRITE_IF_EXISTS_OR_ADD");
+    this.updateHeader(name, value, HeaderValueOption.HeaderAppendAction.OVERWRITE_IF_EXISTS_OR_ADD);
   }
 
   public void removeHeader(String name) {
+    if (name == null || name.isEmpty()) {
+      return;
+    }
     removeHeaders.add(name);
   }
 
   public void appendHeaders(Map<String, String> headers) {
-    this.updateHeaders(headers, "APPEND_IF_EXISTS_OR_ADD");
+    this.updateHeaders(headers, HeaderValueOption.HeaderAppendAction.APPEND_IF_EXISTS_OR_ADD);
   }
 
   public void addHeaders(Map<String, String> headers) {
-    this.updateHeaders(headers, "ADD_IF_ABSENT");
+    this.updateHeaders(headers, HeaderValueOption.HeaderAppendAction.ADD_IF_ABSENT);
   }
 
   public void overwriteHeaders(Map<String, String> headers) {
-    this.updateHeaders(headers, "OVERWRITE_IF_EXISTS_OR_ADD");
+    this.updateHeaders(headers, HeaderValueOption.HeaderAppendAction.OVERWRITE_IF_EXISTS_OR_ADD);
   }
 
   public void removeHeaders(List<String> headers) {
+    if (headers == null) {
+      return;
+    }
     for (String header : headers) {
       this.removeHeader(header);
     }
   }
 
-  public void updateHeader(String name, String value, String action) {
+  protected void updateHeader(
+      String name, String value, HeaderValueOption.HeaderAppendAction action) {
+    if (name == null || name.isEmpty() || value == null) {
+      return;
+    }
     addHeaders.add(
         HeaderValueOption.newBuilder()
             .setHeader(
@@ -425,11 +444,15 @@ public class RequestContext {
                     .setKey(name)
                     .setValue(value)
                     .build())
-            .setAppendAction(HeaderValueOption.HeaderAppendAction.valueOf(action))
+            .setAppendAction(action)
             .build());
   }
 
-  public void updateHeaders(Map<String, String> headers, String action) {
+  protected void updateHeaders(
+      Map<String, String> headers, HeaderValueOption.HeaderAppendAction action) {
+    if (headers == null) {
+      return;
+    }
     for (Map.Entry<String, String> entry : headers.entrySet()) {
       this.updateHeader(entry.getKey(), entry.getValue(), action);
     }

@@ -45,6 +45,7 @@ public class ExternalProcessorServer {
 
   @Deprecated
   public ExternalProcessorServer addShutdownCallback(Runnable callback) {
+    logger.warning("[DEPRECATED] addShutdownCallback is deprecated, use addPostStopHook");
     preStopHooks.add(callback);
     return this;
   }
@@ -52,12 +53,15 @@ public class ExternalProcessorServer {
   /** Set the termination grace period for gRPC connections/requests/streams */
   @Deprecated
   public ExternalProcessorServer setGracePeriodSeconds(int seconds) {
+    logger.warning(
+        "[DEPRECATED] setGracePeriodSeconds is deprecated, use setTerminationGracePeriodSeconds");
     gracePeriodSeconds = seconds;
     return this;
   }
 
   /** Set the termination grace period for gRPC connections/requests/streams */
   public ExternalProcessorServer setTerminationGracePeriodSeconds(int seconds) {
+    logger.fine("Setting termination grace period to " + seconds + " seconds");
     gracePeriodSeconds = seconds;
     return this;
   }
@@ -70,6 +74,7 @@ public class ExternalProcessorServer {
    * close the kafka producer.
    */
   public ExternalProcessorServer addRequestProcessor(RequestProcessor processor) {
+    logger.fine("Adding request processor \"" + processor.getName() + "\" to server");
     builder.addService(new ExternalProcessor(processor, health));
     // NOTE: processor.shutdown will be called _after_ the server is stopped
     return addPostStopHook(() -> processor.shutdown());
@@ -88,18 +93,21 @@ public class ExternalProcessorServer {
 
   /** Add a pre-stop hook, to run before the server is actually stopped */
   public ExternalProcessorServer addPreStopHook(Runnable callback) {
+    logger.fine("Adding pre-stop hook to server");
     preStopHooks.add(callback);
     return this;
   }
 
   /** Add a post-stop hook, to run after server has stopped and drained */
   public ExternalProcessorServer addPostStopHook(Runnable callback) {
+    logger.fine("Adding post-stop hook to server");
     postStopHooks.add(callback);
     return this;
   }
 
   /** Internal method for setting the extproc service as NOT_SERVING */
   private void setExternalProcessorNotServing() {
+    logger.fine("Setting status to not serving");
     health.setStatus(EXT_PROC_SERVICE_NAME, ServingStatus.NOT_SERVING);
   }
 
@@ -113,14 +121,13 @@ public class ExternalProcessorServer {
               @Override
               public void run() {
                 // Any logger may have been reset by its JVM shutdown hook.
-                System.out.println(
-                    "[EXTPROC] shutting down gRPC server since JVM is shutting down");
+                System.out.println("shutting down gRPC server since JVM is shutting down");
                 try {
                   ExternalProcessorServer.this.stop();
                 } catch (InterruptedException e) {
                   e.printStackTrace(System.err);
                 }
-                System.out.println("[EXTPROC] server shut down");
+                System.out.println("server shut down");
               }
             });
     return this;
@@ -132,10 +139,13 @@ public class ExternalProcessorServer {
    */
   public void stop() throws InterruptedException {
     if (server != null) {
+      logger.fine("running preStop hooks");
       for (Runnable hook : preStopHooks) {
         hook.run();
       }
+      logger.fine("Stopping server waiting " + gracePeriodSeconds + " seconds");
       server.shutdown().awaitTermination(gracePeriodSeconds, TimeUnit.SECONDS);
+      logger.fine("running postStop hooks");
       for (Runnable hook : postStopHooks) {
         hook.run();
       }
@@ -144,6 +154,7 @@ public class ExternalProcessorServer {
 
   /** Await termination on the main thread since the grpc library uses daemon threads. */
   public void blockUntilShutdown() throws InterruptedException {
+    logger.fine("Blocking until shutdown");
     if (server != null) {
       server.awaitTermination();
     }
@@ -152,6 +163,7 @@ public class ExternalProcessorServer {
   /** Instantiate a RequestProcessor from the extproc.processor_class property. */
   private static RequestProcessor getProcessorFromProperties() throws Exception {
     String processor = System.getProperty("extproc.class", DEFAULT_EXTPROC_CLASS);
+    logger.fine("Running with processor \"" + processor + "\" derived from properties");
     return (RequestProcessor) Class.forName(processor).getConstructor().newInstance();
   }
 
