@@ -103,14 +103,15 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         if (err instanceof StatusRuntimeException) {
           StatusRuntimeException sre = (StatusRuntimeException) err;
           if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
-            logger.fine("Request processing stream cancelled");
+            logger.fine("Request processing stream cancelled during " + ctx.phase);
             responseObserver.onCompleted();
           } else {
-            logger.severe("Encountered error in processing: " + err);
+            logger.severe("Encountered error in processing during " + ctx.phase + ": " + err);
             responseObserver.onError(sre);
           }
         } else {
-          logger.severe("Encountered internal error in processing: " + err);
+          logger.severe(
+              "Encountered internal error in processing during " + ctx.phase + ": " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
@@ -119,6 +120,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
       @Override
       public void onCompleted() {
+        logger.fine("Request processing completed during " + ctx.phase);
         responseObserver.onCompleted();
       }
     };
@@ -129,15 +131,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     final RequestCase phase = request.getRequestCase();
     final Instant phaseStarted = Instant.now();
 
-    if (phase != RequestCase.REQUEST_HEADERS) {
-      ctx.reset();
-    }
-
     logger.fine("" + procname + " Processing " + phase.toString());
     if (options.logPhases) {
       logger.info("" + procname + " Processing " + phase.toString());
     }
 
+    ctx.reset(phase);
     switch (phase) {
       case REQUEST_HEADERS:
         HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();

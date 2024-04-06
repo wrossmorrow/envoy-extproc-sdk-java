@@ -43,6 +43,8 @@ public class RequestContext {
   protected int status;
   protected String requestId;
   protected String processorId;
+
+  protected RequestCase phase;
   protected Map<String, String> requestHeaders;
   protected Map<String, String> responseHeaders;
   protected boolean endOfStream;
@@ -73,7 +75,15 @@ public class RequestContext {
     reset();
   }
 
-  protected void reset() {
+  protected void reset(RequestCase phase) {
+    this.phase = phase;
+    // we can't reset until we've seen the RequestHeaders phase with data
+    if (phase != RequestCase.REQUEST_HEADERS) {
+      reset();
+    }
+  }
+
+  private void reset() {
     cancelled = false;
     replace = false;
     finished = false;

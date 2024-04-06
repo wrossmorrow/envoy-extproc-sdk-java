@@ -23,7 +23,7 @@ class ContextTest {
   void resetKeepsTimerOn() {
     RequestContext ctx = new RequestContext();
     Instant postCreate = Instant.now();
-    ctx.reset();
+    ctx.reset(RequestCase.REQUEST_BODY);
     assertNotNull(ctx.started);
     assertTrue(ctx.started.isBefore(postCreate));
   }
@@ -105,7 +105,7 @@ class ContextTest {
     assertEquals(ctx.addHeaders.size(), 2);
     assertEquals(ctx.removeHeaders.size(), 1);
 
-    ctx.reset();
+    ctx.reset(RequestCase.REQUEST_BODY);
     assertEquals(ctx.addHeaders.size(), 0);
     assertEquals(ctx.removeHeaders.size(), 0);
   }
