@@ -111,6 +111,27 @@ public class ExternalProcessorServer {
     health.setStatus(EXT_PROC_SERVICE_NAME, ServingStatus.NOT_SERVING);
   }
 
+  /** Set allowable message size */
+  public ExternalProcessorServer setMaxInboundMessageSize(int size) {
+    logger.fine("Updating max inbound message size to " + size + " bytes");
+    builder.maxInboundMessageSize(size);
+    return this;
+  }
+
+  /** Set allowable metadata size */
+  public ExternalProcessorServer setMaxInboundMetadataSize(int size) {
+    logger.fine("Updating max inbound metadata size to " + size + " bytes");
+    builder.maxInboundMetadataSize(size);
+    return this;
+  }
+
+  /** Set max connection age */
+  public ExternalProcessorServer setMaxConnectionAge(long age, TimeUnit unit) {
+    logger.fine("Setting max connection age to " + age + " " + unit);
+    builder.maxConnectionAge(age, unit);
+    return this;
+  }
+
   /** Start the external processor also adding a JVM shutdown wrapper */
   public ExternalProcessorServer start() throws IOException {
     server = builder.build().start();
