@@ -273,6 +273,11 @@ public class RequestContext {
     return status;
   }
 
+  // TODO: don't return null, throw a special "RequestNotInitialized" exception?
+  // We don't know the request ID until we've seen the headers, but also do we 
+  // require a request ID? From the POV of the context, we can just generate one
+  // to use as a key for potential storage in the processor if that uses concurrency
+  // and needs to store state per request.
   public String getRequestId() {
     return requestId;
   }

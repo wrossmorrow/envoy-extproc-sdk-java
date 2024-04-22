@@ -93,6 +93,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       public void onNext(ProcessingRequest request) {
         try {
           responseObserver.onNext(processPhase(request, ctx));
+          if (options.closeStreamOnEndOfStream && ctx.streamComplete()) {
+            responseObserver.onCompleted();
+          }
         } catch (Throwable t) {
           onError(t);
         }
