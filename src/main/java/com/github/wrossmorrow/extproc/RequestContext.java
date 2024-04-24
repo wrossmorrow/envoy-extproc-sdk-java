@@ -103,8 +103,9 @@ public class RequestContext {
   }
 
   protected void initialize() {
-    status = 0;
     started = Instant.now();
+    status = 0;
+    finished = false;
     duration = Duration.ZERO;
     requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
@@ -122,7 +123,6 @@ public class RequestContext {
   private void reset() {
     cancelled = false;
     replace = false;
-    finished = false;
     endOfStream = false;
     addHeaders = new ArrayList<HeaderValueOption>();
     removeHeaders = new ArrayList<String>();
@@ -324,6 +324,14 @@ public class RequestContext {
   // and needs to store state per request.
   public String getRequestId() {
     return requestId;
+  }
+
+  public void setProcessingComplete() {
+    finished = true;
+  }
+
+  public boolean isProcessingComplete() {
+    return finished || cancelled;
   }
 
   public Instant getStarted() {

@@ -33,7 +33,4 @@ public interface RequestProcessor {
 
   /** Method for processing response trailers */
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers);
-
-  /** Allow a customized processor to tell the server to complete the stream */
-  public boolean processingComplete(RequestContext ctx);
 }
