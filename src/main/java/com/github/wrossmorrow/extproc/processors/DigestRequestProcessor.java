@@ -100,8 +100,4 @@ public class DigestRequestProcessor implements RequestProcessor {
     }
     return hexText;
   }
-
-  public boolean processingComplete(RequestContext ctx) {
-    return false;
-  }
 }

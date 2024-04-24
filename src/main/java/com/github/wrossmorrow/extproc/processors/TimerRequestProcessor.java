@@ -55,8 +55,4 @@ public class TimerRequestProcessor implements RequestProcessor {
     ctx.addHeader("x-extproc-finished", finished.toString());
     ctx.addHeader("x-extproc-upstream-duration-ns", String.valueOf(duration.toNanos()));
   }
-
-  public boolean processingComplete(RequestContext ctx) {
-    return false;
-  }
 }

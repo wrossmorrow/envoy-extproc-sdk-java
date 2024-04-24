@@ -52,8 +52,4 @@ public class LoggingRequestProcessor implements RequestProcessor {
       System.out.println(entry.getKey() + ": " + entry.getValue());
     }
   }
-
-  public boolean processingComplete(RequestContext ctx) {
-    return false;
-  }
 }
