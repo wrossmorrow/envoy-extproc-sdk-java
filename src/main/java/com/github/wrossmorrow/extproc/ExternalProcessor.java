@@ -107,7 +107,6 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           StatusRuntimeException sre = (StatusRuntimeException) err;
           if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
             logger.fine("Request processing stream cancelled during " + ctx.phase);
-            responseObserver.onCompleted();
           } else {
             logger.severe("Encountered error in processing during " + ctx.phase + ": " + err);
             responseObserver.onError(sre);

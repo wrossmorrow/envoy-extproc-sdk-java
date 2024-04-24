@@ -35,12 +35,14 @@ public class RequestContext {
     private final String key;
     private final byte[] raw;
     private String value;
+    private final boolean _isBytes;
 
     public SafeHeader(HeaderValue hv) {
       this.key = hv.getKey();
       this.value = hv.getValue();
       this.raw = hv.getRawValue().toByteArray();
       if (this.value.isEmpty() && this.raw.length > 0) {
+        this._isBytes = true;
         try {
           // envoy may pass headers with raw values that are simply UTF-8 bytes
           // or the value may actually include non-UTF-8 bytes. If it is UTF-8,
@@ -52,6 +54,8 @@ public class RequestContext {
           // so we can always treat header values as strings
           this.value = encoder.encodeToString(this.raw);
         }
+      } else {
+        this._isBytes = false;
       }
     }
 
@@ -61,6 +65,14 @@ public class RequestContext {
 
     public String getValue() {
       return value;
+    }
+
+    public byte[] getRaw() {
+      return raw;
+    }
+
+    public boolean isBytes() {
+      return _isBytes;
     }
   }
 
