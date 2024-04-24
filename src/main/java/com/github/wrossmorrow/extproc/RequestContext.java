@@ -100,6 +100,7 @@ public class RequestContext {
       final String key = hv.getKey(); // not null
       final String val = hv.getValue(); // not null
       if (key.startsWith(":")) {
+        // these are standard envoy headers we expect to be well-formed
         switch (key) {
           case ":scheme":
             scheme = val;
@@ -161,7 +162,8 @@ public class RequestContext {
 
   protected Map<String, String> initializeResponse(HeaderMap headers) {
     if (headers == null) {
-      // only issue here is that we don't know the status...
+      // only issue here is that we don't know the status... but should not
+      // be null if correctly passed through from envoy
       return responseHeaders;
     }
     for (HeaderValue hv : headers.getHeadersList()) {
@@ -170,7 +172,11 @@ public class RequestContext {
       if (key.startsWith(":")) {
         switch (key) {
           case ":status":
-            status = Integer.parseInt(val); // NaN?
+            try {
+              status = Integer.parseInt(val);
+            } catch (NumberFormatException e) {
+              status = 0; // technically 
+            }
             break;
           default:
             break;
@@ -274,7 +280,7 @@ public class RequestContext {
   }
 
   // TODO: don't return null, throw a special "RequestNotInitialized" exception?
-  // We don't know the request ID until we've seen the headers, but also do we 
+  // We don't know the request ID until we've seen the headers, but also do we
   // require a request ID? From the POV of the context, we can just generate one
   // to use as a key for potential storage in the processor if that uses concurrency
   // and needs to store state per request.
