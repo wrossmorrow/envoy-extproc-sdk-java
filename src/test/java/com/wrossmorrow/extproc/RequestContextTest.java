@@ -2,10 +2,13 @@ package com.github.wrossmorrow.extproc;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import build.buf.gen.envoy.config.core.v3.HeaderMap;
+import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
 import com.google.protobuf.ByteString;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -148,5 +151,60 @@ class ContextTest {
     assertNotNull(response.getImmediateResponse());
     assertEquals(response.getImmediateResponse().getStatus().getCodeValue(), 200);
     assertEquals(response.getImmediateResponse().getBody(), "OK");
+  }
+
+  @Test
+  void initializeResponseDoesNotError() throws Exception {
+    RequestContext ctx = new RequestContext();
+    ctx.initializeResponse(null);
+    assertEquals(ctx.getStatus(), 0);
+
+    HeaderMap headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey(":status").setValue(""))
+            .addHeaders(
+                HeaderValue.newBuilder().setKey("content-type").setValue("application/json"))
+            .build();
+    ctx.initializeResponse(headerMap);
+    assertEquals(ctx.getStatus(), 0);
+
+    headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey(":status").setValue("nan"))
+            .addHeaders(
+                HeaderValue.newBuilder().setKey("content-type").setValue("application/json"))
+            .build();
+    ctx.initializeResponse(headerMap);
+    assertEquals(ctx.getStatus(), 0);
+
+    headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey(":status").setValue("200"))
+            .addHeaders(
+                HeaderValue.newBuilder().setKey("content-type").setValue("application/json"))
+            .build();
+    ctx.initializeResponse(headerMap);
+    assertEquals(ctx.getStatus(), 200);
+  }
+
+  @Test
+  void initializeResponseDoesHandlesRawValue() throws Exception {
+    RequestContext ctx = new RequestContext();
+
+    HeaderMap headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(
+                HeaderValue.newBuilder()
+                    .setKey(":status")
+                    .setRawValue(ByteString.copyFrom("200".getBytes(StandardCharsets.UTF_8))))
+            .addHeaders(
+                HeaderValue.newBuilder()
+                    .setKey("content-type")
+                    .setRawValue(
+                        ByteString.copyFrom("application/json".getBytes(StandardCharsets.UTF_8))))
+            .build();
+    ctx.initializeResponse(headerMap);
+    assertEquals(ctx.getStatus(), 200);
+    assertEquals(ctx.getResponseHeader("content-type"), "application/json");
   }
 }

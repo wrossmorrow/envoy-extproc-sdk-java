@@ -93,7 +93,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       public void onNext(ProcessingRequest request) {
         try {
           responseObserver.onNext(processPhase(request, ctx));
-          if (options.closeStreamOnEndOfStream && ctx.streamComplete()) {
+          if (processor.processingComplete(ctx)) {
             responseObserver.onCompleted();
           }
         } catch (Throwable t) {

@@ -37,4 +37,8 @@ public class ThrowingRequestProcessor implements RequestProcessor {
   public void processResponseBody(RequestContext ctx, String body) {}
 
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
+
+  public boolean processingComplete(RequestContext ctx) {
+    return false;
+  }
 }

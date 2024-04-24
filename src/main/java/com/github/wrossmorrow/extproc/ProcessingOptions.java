@@ -12,7 +12,6 @@ public class ProcessingOptions {
     logPhases = Boolean.getBoolean("extproc.logs.phases");
     upstreamDurationHeader = Boolean.getBoolean("extproc.upstream.headers.duration");
     downstreamDurationHeader = Boolean.getBoolean("extproc.downstream.headers.duration");
-    closeStreamOnEndOfStream = Boolean.getBoolean("extproc.streams.closeOnEndOfStream");
   }
 
   public String toString() {

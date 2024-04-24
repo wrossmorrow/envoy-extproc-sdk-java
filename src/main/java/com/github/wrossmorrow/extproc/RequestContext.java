@@ -21,12 +21,48 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 
 public class RequestContext {
+
+  private static final Base64.Encoder encoder = Base64.getEncoder();
+
+  private class SafeHeader {
+    private final String key;
+    private final byte[] raw;
+    private String value;
+
+    public SafeHeader(HeaderValue hv) {
+      this.key = hv.getKey();
+      this.value = hv.getValue();
+      this.raw = hv.getRawValue().toByteArray();
+      if (this.value.isEmpty() && this.raw.length > 0) {
+        try {
+          // envoy may pass headers with raw values that are simply UTF-8 bytes
+          // or the value may actually include non-UTF-8 bytes. If it is UTF-8,
+          // we can safely convert it to a string, otherwise we'll just leave it
+          // in the raw field
+          this.value = new String(this.raw, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+          // if we can't convert it to a string explicitly, we'll cast into base64
+          // so we can always treat header values as strings
+          this.value = encoder.encodeToString(this.raw);
+        }
+      }
+    }
+
+    public String getKey() {
+      return key;
+    }
+
+    public String getValue() {
+      return value;
+    }
+  }
 
   private final String requestIdHeaderName;
 
@@ -97,8 +133,9 @@ public class RequestContext {
   protected Map<String, String> initializeRequest(HeaderMap protoHeaders) {
     // if (protoHeaders == null) { ... } // this is a problem, not initializable
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
-      final String key = hv.getKey(); // not null
-      final String val = hv.getValue(); // not null
+      final SafeHeader header = new SafeHeader(hv);
+      final String key = header.getKey(); // not null
+      final String val = header.getValue(); // not null
       if (key.startsWith(":")) {
         // these are standard envoy headers we expect to be well-formed
         switch (key) {
@@ -167,15 +204,16 @@ public class RequestContext {
       return responseHeaders;
     }
     for (HeaderValue hv : headers.getHeadersList()) {
-      final String key = hv.getKey(); // not null
-      final String val = hv.getValue(); // not null
+      final SafeHeader header = new SafeHeader(hv);
+      final String key = header.getKey(); // not null
+      final String val = header.getValue(); // not null
       if (key.startsWith(":")) {
         switch (key) {
           case ":status":
             try {
               status = Integer.parseInt(val);
             } catch (NumberFormatException e) {
-              status = 0; // technically 
+              status = 0; // technically
             }
             break;
           default:

@@ -39,4 +39,8 @@ public class TrivialRequestProcessor implements RequestProcessor {
   }
 
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
+
+  public boolean processingComplete(RequestContext ctx) {
+    return false;
+  }
 }
