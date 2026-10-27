@@ -85,6 +85,16 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
+  masker:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.MaskerRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
   echo:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:

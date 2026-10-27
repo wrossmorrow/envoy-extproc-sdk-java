@@ -217,7 +217,7 @@ The `TrivialRequestProcessor` does very little: adds a header to the request sen
 
 ### Timer
 
-The `TimerRequestProcessor` adds timing headers: one to the request sent to the upstream with the ISO time when the request started processing, and similar started, finished, and duration (ns) headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
+The `TimerRequestProcessor` adds timing headers: `x-extproc-started-ns` (Unix epoch time, in ns, when the request started processing) in the request phase, and `x-extproc-finished-ns` and `x-upstream-duration-ns` (ns elapsed) in the response phases. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
 
 ### Echo
 
@@ -234,6 +234,10 @@ and a JSON response like
 }
 ```
 when that occurs. 
+
+### Masker
+
+The `MaskerRequestProcessor` is an example of body modification with `RequestContext.replaceBody`. It examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. The masked paths are `maskme` and `mask.me`.
 
 ### Digest
 
