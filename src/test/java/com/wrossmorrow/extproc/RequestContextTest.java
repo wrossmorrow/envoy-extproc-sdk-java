@@ -236,6 +236,32 @@ class ContextTest {
   }
 
   @Test
+  void clearRouteCacheIsSurfacedInResponse() {
+    RequestContext ctx = new RequestContext();
+    ctx.clearRouteCache();
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(response.getRequestHeaders().getResponse().getClearRouteCache());
+  }
+
+  @Test
+  void unClearRouteCacheClearsFlag() {
+    RequestContext ctx = new RequestContext();
+    ctx.clearRouteCache();
+    assertTrue(ctx.isClearRouteCache());
+    ctx.unClearRouteCache();
+    assertFalse(ctx.isClearRouteCache());
+  }
+
+  @Test
+  void resetClearsClearRouteCache() {
+    RequestContext ctx = new RequestContext();
+    ctx.clearRouteCache();
+    assertTrue(ctx.isClearRouteCache());
+    ctx.reset(RequestCase.REQUEST_BODY);
+    assertFalse(ctx.isClearRouteCache());
+  }
+
+  @Test
   void cancellingReturnsImmediateResponse() {
     RequestContext ctx = new RequestContext();
     ctx.cancelRequest(200, null, "OK");
