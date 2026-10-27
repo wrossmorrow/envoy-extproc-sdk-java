@@ -75,7 +75,7 @@ document, has no metrics, and has drifted behind on contract semantics.
 | 13 | Health status management (MarkReady/MarkNotReady/Check) | ✅ | ✅ | ⚠️ (via `HealthStatusManager`; `failed`→terminal semantics to verify) | Low-Medium |
 | 14 | Stream cancellation semantics | ✅ | ✅ | ⚠️ (partial fix present, needs ErrorHandler wiring) | Medium |
 | 15 | Async phase methods | ✅ (sync fns returning `Result`) | ✅ (async) | ❌ (sync) | Decision |
-| 16 | Tester / load-testing harness | ✅ (test/tester.go, cases.yaml) | ✅ (src/tester.rs, tests/) | ❌ (`_mocks/echo` only) | Medium |
+| 16 | Tester / load-testing harness | ✅ (test/tester.go, cases.yaml) | ✅ (src/tester.rs, tests/) | ❌ (no tester; echo mock is now the upstream `simple-echo-server`) | Medium |
 | 17 | Examples parity (noop, timer, data, masker, router, digest, dedup, echo, trivial, loadgen) | ✅ | ✅ | ⚠️ (missing masker/router/data; timer & noop header names drift) | Medium |
 
 ---

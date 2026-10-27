@@ -138,7 +138,7 @@ You can run all the examples with
 ```shell
 ./gradlew clean build && docker-compose up --build
 ```
-The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+The compose setup runs `envoy` (see `envoy.yaml`), a mock echo server (see `ghcr.io/wrossmorrow/simple-echo-server`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
 
 Here is some sample output with the compose setup running: 
 ```shell
@@ -241,4 +241,4 @@ The `DigestRequestProcessor` computes a (SHA256) digest of the request, specific
 
 ### Dedup
 
-The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query parameter to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
+The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `X-Echo-Delay` header to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
