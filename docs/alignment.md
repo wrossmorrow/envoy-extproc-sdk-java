@@ -75,8 +75,8 @@ document, has no metrics, and has drifted behind on contract semantics.
 | 13 | Health status management (MarkReady/MarkNotReady/Check) | ✅ | ✅ | ⚠️ (via `HealthStatusManager`; `failed`→terminal semantics to verify) | Low-Medium |
 | 14 | Stream cancellation semantics | ✅ | ✅ | ⚠️ (partial fix present, needs ErrorHandler wiring) | Medium |
 | 15 | Async phase methods | ✅ (sync fns returning `Result`) | ✅ (async) | ❌ (sync) | Decision |
-| 16 | Tester / load-testing harness | ✅ (test/tester.go, cases.yaml) | ✅ (src/tester.rs, tests/) | ❌ (`_mocks/echo` only) | Medium |
-| 17 | Examples parity (noop, timer, data, masker, router, digest, dedup, echo, trivial, loadgen) | ✅ | ✅ | ⚠️ (missing masker/router/data; timer & noop header names drift) | Medium |
+| 16 | Tester / load-testing harness | ✅ (test/tester.go, cases.yaml) | ✅ (src/tester.rs, tests/) | ❌ (no tester; echo mock is now the upstream `simple-echo-server`) | Medium |
+| 17 | Examples parity (noop, timer, data, masker, router, digest, dedup, echo, trivial, loadgen) | ✅ | ✅ | ⚠️ (missing router/data; timer & noop header names drift; masker landed) | Medium |
 
 ---
 
@@ -133,7 +133,7 @@ document, has no metrics, and has drifted behind on contract semantics.
 
 11. **Tester / load-testing harness** parity (Go `test/tester.go`, Rust `src/tester.rs` + `tests/bin/extproc-tester.rs`; Go/Rust `loadtest/` k6 scripts and plain gRPC loadgen).
 
-12. **Examples parity** (Go/Rust example processors): `noop`, `timer`, `data`, `masker`, `router`, `digest`, `dedup`, `echo`, `trivial`, plus loadgen. Java currently lacks `masker`, `router`, `data`; has `Logging`/`Throwing` not present upstream; `LoggingRequestProcessor.getName()` incorrectly returns `"noop"`.
+12. **Examples parity** (Go/Rust example processors): `noop`, `timer`, `data`, `masker`, `router`, `digest`, `dedup`, `echo`, `trivial`, plus loadgen. Java now has `masker`; still lacks `router`, `data`; has `Logging`/`Throwing` not present upstream; `LoggingRequestProcessor.getName()` was fixed to return `"logging"`.
 
 ### 2.4 Low / review
 

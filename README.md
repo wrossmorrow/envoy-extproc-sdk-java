@@ -140,7 +140,7 @@ You can run all the examples with
 ```shell
 ./gradlew clean build && docker-compose up --build
 ```
-The compose setup runs `envoy` (see `examples/envoy.yaml`), a mock echo server (see `_mocks/echo`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+The compose setup runs `envoy` (see `envoy.yaml`), a mock echo server (see `ghcr.io/wrossmorrow/simple-echo-server`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
 
 Here is some sample output with the compose setup running: 
 ```shell
@@ -219,7 +219,7 @@ The `TrivialRequestProcessor` does very little: adds a header to the request sen
 
 ### Timer
 
-The `TimerRequestProcessor` adds timing headers: one to the request sent to the upstream with the ISO time when the request started processing, and similar started, finished, and duration (ns) headers to the response sent to the client. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
+The `TimerRequestProcessor` adds timing headers: `x-extproc-started-ns` (Unix epoch time, in ns, when the request started processing) in the request phase, and `x-extproc-finished-ns` and `x-upstream-duration-ns` (ns elapsed) in the response phases. Note this ExtProc uses data stored in the request context _across phases_, but not _custom_ data. 
 
 ### Echo
 
@@ -237,10 +237,14 @@ and a JSON response like
 ```
 when that occurs. 
 
+### Masker
+
+The `MaskerRequestProcessor` is an example of body modification with `RequestContext.replaceBody`. It examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. The masked paths are `maskme` and `mask.me`.
+
 ### Digest
 
 The `DigestRequestProcessor` computes a (SHA256) digest of the request, specifically of `<method>:<path>[:body]`, and passes that back to the request client in the response as a header. Such digests are useful when, for example, internally examining duplicate requests (though invariantly changing body bytes, e.g. reordering JSON fields, wouldn't show up as duplication in a hash).
 
 ### Dedup
 
-The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query parameter to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
+The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `X-Echo-Delay` header to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 

@@ -15,10 +15,10 @@ services:
   # upstream "echo" server
   upstream:
     hostname: upstream
-    image: echo-server
-    build:
-      context: _mocks/echo
-      dockerfile: Dockerfile
+    image: ghcr.io/wrossmorrow/simple-echo-server:${ECHO_SERVER_VERSION:-main}
+    command:
+      - -port=8000
+      - -name=upstream
     ports:
       - '8000:8000'
     environment:
@@ -82,6 +82,36 @@ services:
       - -Dextproc.upstream.headers.duration=true
       - -Dextproc.downstream.headers.duration=true
       - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DedupRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
+  masker:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.MaskerRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
+  data:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DataRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
+  router:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.RouterRequestProcessor
       - -jar
       - /extproc/extproc.jar
     restart: always
