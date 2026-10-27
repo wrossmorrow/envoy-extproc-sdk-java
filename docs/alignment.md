@@ -71,7 +71,7 @@ document, has no metrics, and has drifted behind on contract semantics.
 | 9 | Immediate responses (phase-restricted) | ✅ | ✅ | ⚠️ (trailer phases allowed) | Low |
 | 10 | Error handling & error handler, abort policy | ✅ | ✅ | ❌ (throw → stream error) | **Critical** |
 | 11 | Metrics (Prometheus) | ✅ | ✅ | ❌ (none) | **High** |
-| 12 | Server options (`ServerOptions`) + `Serve`/`MustServe` + graceful shutdown | ✅ | ✅ | ❌ (builder-only, ad-hoc grace) | **High** |
+| 12 | Server options (`ServerOptions`) + `Serve`/`MustServe` + graceful shutdown | ✅ | ✅ | ⚠️ (builder(`ServerOptions`), `Serve`/`MustServe`, graceful stop w/ force-stop landed; unready-delay opt-in via flag) | **High** |
 | 13 | Health status management (MarkReady/MarkNotReady/Check) | ✅ | ✅ | ⚠️ (via `HealthStatusManager`; `failed`→terminal semantics to verify) | Low-Medium |
 | 14 | Stream cancellation semantics | ✅ | ✅ | ⚠️ (partial fix present, needs ErrorHandler wiring) | Medium |
 | 15 | Async phase methods | ✅ (sync fns returning `Result`) | ✅ (async) | ❌ (sync) | Decision |
@@ -118,6 +118,7 @@ document, has no metrics, and has drifted behind on contract semantics.
    - Add `ServerOptions` (ext_proc port, metrics port, max concurrent streams, unready propagation delay, termination grace period) with defaults, JSON/YAML loaders, and `Serve`/`MustServe` entry points.
    - Implement graceful shutdown sequence: mark health `NOT_SERVING` → wait unready propagation delay → `GracefulStop` (bounded by termination grace, force-stop fallback) → metrics shutdown → processor `Close(gracePeriodSeconds)`.
    - Add `setMaxConcurrentStreams`.
+   - **Status (2026-10-27):** landed — `ServerOptions` with upstream defaults, `ExternalProcessorServer.builder(ServerOptions)`, `setMaxConcurrentStreams`, `setUnreadyPropagationDelaySeconds`, and `Serve`/`MustServe`; graceful shutdown sequence implemented in `ExternalProcessorServer.stop()` (pre-stop hooks → unready propagation wait → graceful stop w/ force-stop fallback → metrics shutdown → post-stop hooks). JSON/YAML loaders and integration tests for `Serve`/`MustServe` remain open.
 
 ### 2.3 Medium
 
@@ -163,6 +164,7 @@ document, has no metrics, and has drifted behind on contract semantics.
 - `ProcessingOptions`: add `updateExtProcHeader`, `updateDurationHeader`, `abortOnProcessorFailure`; keep legacy fields/getters as deprecated aliases; JSON/YAML loaders.
 - New `Metrics` type + Prometheus wiring + `/metrics` server + collection in server path.
 - New `ServerOptions` + `Serve`/`MustServe` + graceful shutdown sequence; add `setMaxConcurrentStreams`.
+- **Status (2026-10-27):** landed — metrics and the `ProcessingOptions` update/abort options landed earlier; server options + `Serve`/`MustServe` + graceful shutdown + `setMaxConcurrentStreams` landed in this session. Remaining: JSON/YAML loaders, `Serve`/`MustServe` tests, full end-to-end graceful-shutdown test matrix.
 
 ### Milestone 4 — Examples, harness, docs
 - Add missing example processors (data, masker, router), update noop/timer/dedup/digest/echo/trivial to upstream semantics, add tester & loadgen parity, refresh `README.md`, update `docker-compose.yaml` property names if options are renamed.
@@ -205,3 +207,7 @@ Where the upstream SDKs made **intentional** breaking changes (options rename, e
 2. Land Milestone 2 items that fix correctness bugs first (duration accumulation, body semantics, clear-route-cache).
 3. Then options/metrics/server, then examples/harness/docs.
 4. Cut a `0.3.0` release with `MIGRATION.md` and updated README.
+
+(Milestone 3, options/metrics/server lifecycle, has now largely landed: `ServerOptions`,
+`Serve`/`MustServe`, graceful shutdown sequence, and `setMaxConcurrentStreams` are implemented;
+remaining work is JSON/YAML loaders and the broader graceful-shutdown test matrix.)
