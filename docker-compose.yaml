@@ -95,6 +95,26 @@ services:
       - -jar
       - /extproc/extproc.jar
     restart: always
+  data:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.DataRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
+  router:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    command:
+      - -Dextproc.logs.phases=true
+      - -Dextproc.upstream.headers.duration=true
+      - -Dextproc.downstream.headers.duration=true
+      - -Dextproc.class=com.github.wrossmorrow.extproc.processors.RouterRequestProcessor
+      - -jar
+      - /extproc/extproc.jar
+    restart: always
   echo:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
     command:
