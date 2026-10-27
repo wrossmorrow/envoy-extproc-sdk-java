@@ -611,4 +611,40 @@ public class RequestContext {
   public void clearBodyChunk() {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
   }
+
+  /**
+   * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
+   * content-length to match. An empty replacement is a no-op. Under STREAMED body mode, use {@link
+   * #replaceBodyChunk(byte[])} instead, which is chunk semantics.
+   */
+  public void replaceBody(byte[] body) {
+    if (body == null || body.length == 0) {
+      // an empty replace is a no-op
+      return;
+    }
+    bodyMutation = BodyMutation.newBuilder().setBody(ByteString.copyFrom(body)).build();
+    overwriteHeader("content-length", String.valueOf(body.length));
+  }
+
+  /**
+   * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
+   * content-length to match. An empty replacement is a no-op. Under STREAMED body mode, use {@link
+   * #replaceBodyChunk(String)} instead, which is chunk semantics.
+   */
+  public void replaceBody(String body) {
+    if (body == null || body.isEmpty()) {
+      // an empty replace is a no-op
+      return;
+    }
+    replaceBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+  }
+
+  /**
+   * Clears the whole body and zeroes the content-length (BUFFERED semantics). Under STREAMED body
+   * mode, use {@link #clearBodyChunk()} instead, which clears a single chunk.
+   */
+  public void clearBody() {
+    bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
+    overwriteHeader("content-length", "0");
+  }
 }
