@@ -348,4 +348,29 @@ class ContextTest {
     assertEquals(ctx.getStatus(), 200);
     assertEquals(ctx.getResponseHeader("content-type"), "application/json");
   }
+
+  @Test
+  void customDataSetAndGet() {
+    RequestContext ctx = new RequestContext();
+    assertNull(ctx.getValue("customId"));
+    ctx.setValue("customId", "abc-123");
+    assertEquals("abc-123", ctx.getValue("customId"));
+    assertEquals("abc-123", ctx.getValue("customId", String.class));
+  }
+
+  @Test
+  void customDataTypedGet() {
+    RequestContext ctx = new RequestContext();
+    java.util.UUID uuid = java.util.UUID.randomUUID();
+    ctx.setValue("customId", uuid);
+    assertEquals(uuid, ctx.getValue("customId", java.util.UUID.class));
+  }
+
+  @Test
+  void customDataPersistsAcrossPhaseResets() {
+    RequestContext ctx = new RequestContext();
+    ctx.setValue("routed", Boolean.FALSE);
+    ctx.reset(RequestCase.REQUEST_BODY);
+    assertEquals(Boolean.FALSE, ctx.getValue("routed", Boolean.class));
+  }
 }

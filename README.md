@@ -92,6 +92,8 @@ This context is carried through every request phase, and passed to the interface
 
 Your `RequestProcessor` implementation can use whatever storage strategy for your own contextual data you want, but you should make sure to use `requestId` (or your own ID) as a key in case your external processor sees concurrent requests. 
 
+**Custom data.** The context also exposes a custom-data surface via `setValue`/`getValue` (and the typed `getValue(name, Class<T>)`). Custom values set during one phase are available in later phases of the same stream, and are not shared across streams. The backing map is a plain, unsynchronized `HashMap`: the context itself is scoped per stream and is not thread-safe/locked, so a processor relying on context custom data does not need its own synchronization for that map. If your processor keeps its own cross-stream state (say, an in-flight cache), you are responsible for synchronizing it. 
+
 ### Forming Responses
 
 We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less (preferably nothing) about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
