@@ -25,16 +25,32 @@ public class ExternalProcessorServer {
   public static final String EXT_PROC_SERVICE_NAME = "envoy.service.ext_proc.v3.ExternalProcessor";
 
   private ServerBuilder<?> builder;
-  private Server server;
-  private HealthStatusManager health;
+  protected Server server;
+  protected HealthStatusManager health;
   private int port = 50051;
   private int gracePeriodSeconds = 30;
   private Metrics metrics = new Metrics();
   private int metricsPort = 9090;
-  private HTTPServer metricsServer;
+  protected HTTPServer metricsServer;
   protected List<Runnable> preStopHooks = new ArrayList<Runnable>();
   protected List<Runnable> postStopHooks = new ArrayList<Runnable>();
   protected RequestProcessor processor;
+
+  /**
+   * Whether {@link #stop()} should mark the health status NOT_SERVING before initiating graceful
+   * shutdown (opted in via {@link #stopServingOnShutdown()} or {@link
+   * #stopServingOnShutdownFirst()}).
+   */
+  protected boolean markNotServingOnStop = false;
+
+  /** Maximum number of concurrent processing streams; zero (or less) means unlimited. */
+  protected int maxConcurrentStreams;
+
+  /** Interceptor enforcing {@link #maxConcurrentStreams}; created when a limit is configured. */
+  protected MaxConcurrentStreamsInterceptor maxConcurrentStreamsInterceptor;
+
+  /** Seconds to wait after marking the service not serving before initiating graceful stop. */
+  protected int unreadyPropagationDelaySeconds;
 
   public ExternalProcessorServer builder() {
     return this.builder(port);
@@ -45,6 +61,24 @@ public class ExternalProcessorServer {
     builder = Grpc.newServerBuilderForPort(port, InsecureServerCredentials.create());
     builder.addService(health.getHealthService());
     builder.addService(ProtoReflectionService.newInstance());
+    return this;
+  }
+
+  public ExternalProcessorServer builder(ServerOptions serverOptions) {
+    port = serverOptions.extProcPort;
+    metricsPort = serverOptions.metricsPort;
+    maxConcurrentStreams = serverOptions.maxConcurrentStreams;
+    unreadyPropagationDelaySeconds = serverOptions.unreadyPropagationDelaySeconds;
+    gracePeriodSeconds = serverOptions.terminationGracePeriodSeconds;
+    health = new HealthStatusManager();
+    builder = Grpc.newServerBuilderForPort(port, InsecureServerCredentials.create());
+    builder.addService(health.getHealthService());
+    builder.addService(ProtoReflectionService.newInstance());
+    if (serverOptions.maxConcurrentStreams > 0) {
+      maxConcurrentStreamsInterceptor =
+          new MaxConcurrentStreamsInterceptor(serverOptions.maxConcurrentStreams);
+      builder.intercept(maxConcurrentStreamsInterceptor);
+    }
     return this;
   }
 
@@ -78,6 +112,25 @@ public class ExternalProcessorServer {
     return this;
   }
 
+  /** Set the maximum number of concurrent processing streams. */
+  public ExternalProcessorServer setMaxConcurrentStreams(int maxConcurrentStreams) {
+    logger.fine("Updating max concurrent streams to " + maxConcurrentStreams);
+    this.maxConcurrentStreams = maxConcurrentStreams;
+    if (server == null && builder != null) {
+      applyMaxConcurrentStreams();
+    }
+    return this;
+  }
+
+  /**
+   * Set the number of seconds to wait after marking the service not serving before graceful stop.
+   */
+  public ExternalProcessorServer setUnreadyPropagationDelaySeconds(int seconds) {
+    logger.fine("Updating unready propagation delay to " + seconds + " seconds");
+    unreadyPropagationDelaySeconds = seconds;
+    return this;
+  }
+
   /**
    * Add a request processor to build the service, automatically setting the shutdown method as a
    * post-stop hook. This is probably the preferred timing for processor shutdown, as processors
@@ -95,11 +148,13 @@ public class ExternalProcessorServer {
 
   /** Declare that, yes, we should set to NOT_SERVING before stopping */
   public ExternalProcessorServer stopServingOnShutdown() {
+    markNotServingOnStop = true;
     return addPreStopHook(() -> setExternalProcessorNotServing());
   }
 
   /** Declare that we should set to NOT_SERVING _first_ before stopping */
   public ExternalProcessorServer stopServingOnShutdownFirst() {
+    markNotServingOnStop = true;
     preStopHooks.add(0, () -> setExternalProcessorNotServing());
     return this;
   }
@@ -174,6 +229,12 @@ public class ExternalProcessorServer {
   /**
    * Stop the external processor, including running pre and post stop hooks CAUTION: pre stop hooks
    * will delay shutdown, so they should be fast.
+   *
+   * <p>Implements the graceful shutdown sequence (aligned with the Go and Rust SDKs): pre-stop
+   * hooks may mark the health status NOT_SERVING, then the unready propagation delay is awaited,
+   * then the gRPC server is gracefully stopped (bounded by the termination grace period, with a
+   * force-stop fallback), then the metrics server is shut down, and finally the post-stop hooks
+   * (e.g. processor {@code Close}) run.
    */
   public void stop() throws InterruptedException {
     if (server != null) {
@@ -181,17 +242,38 @@ public class ExternalProcessorServer {
       for (Runnable hook : preStopHooks) {
         hook.run();
       }
+
+      if (markNotServingOnStop) {
+        logger.fine(
+            "Waiting " + unreadyPropagationDelaySeconds + " seconds for unready propagation");
+        if (unreadyPropagationDelaySeconds > 0) {
+          Thread.sleep(TimeUnit.SECONDS.toMillis(unreadyPropagationDelaySeconds));
+        }
+      }
+
       logger.fine("Stopping server waiting " + gracePeriodSeconds + " seconds");
       server.shutdown().awaitTermination(gracePeriodSeconds, TimeUnit.SECONDS);
-      logger.fine("running postStop hooks");
-      for (Runnable hook : postStopHooks) {
-        hook.run();
+      if (!server.isTerminated()) {
+        logger.warning(
+            "Graceful shutdown did not complete within "
+                + gracePeriodSeconds
+                + " seconds, forcing stop");
+        server.shutdownNow();
+        server.awaitTermination();
       }
     }
+
     if (metricsServer != null) {
       logger.fine("Stopping metrics server");
       metricsServer.stop();
       metricsServer = null;
+    }
+
+    if (server != null) {
+      logger.fine("running postStop hooks");
+      for (Runnable hook : postStopHooks) {
+        hook.run();
+      }
     }
   }
 
@@ -216,11 +298,50 @@ public class ExternalProcessorServer {
    * use and chaining to add whatever other properties or hooks needed.
    */
   public static void main(String[] args) throws Exception {
-    new ExternalProcessorServer()
-        .builder()
-        .stopServingOnShutdownFirst()
-        .addRequestProcessor(getProcessorFromProperties())
-        .start()
-        .blockUntilShutdown();
+    mustServe(
+        ServerOptions.defaultOptions(),
+        getProcessorFromProperties(),
+        Logger.getLogger(ExternalProcessorServer.class.getName()));
+  }
+
+  /**
+   * Serve the ExternalProcessor gRPC server from the given {@link ServerOptions}, blocking until
+   * the server is shut down. Runs the graceful shutdown sequence (mark not serving → wait unready
+   * propagation delay → graceful stop → metrics shutdown → processor close) when stopped.
+   */
+  public static ExternalProcessorServer serve(
+      ServerOptions serverOptions, RequestProcessor processor, Logger logger) throws Exception {
+    if (processor == null) {
+      throw new IllegalArgumentException("processor is nil");
+    }
+    ExternalProcessorServer server = new ExternalProcessorServer();
+    server.markNotServingOnStop = true;
+    server.builder(serverOptions);
+    server.addRequestProcessor(processor);
+    server.start();
+    server.blockUntilShutdown();
+    return server;
+  }
+
+  /**
+   * Convenience wrapper around {@link #serve(ServerOptions, RequestProcessor, Logger)} that exits
+   * the JVM if the server fails to start or shut down.
+   */
+  public static void mustServe(
+      ServerOptions serverOptions, RequestProcessor processor, Logger logger) {
+    try {
+      serve(serverOptions, processor, logger);
+    } catch (Exception e) {
+      logger.severe("extproc server failed to serve: " + e);
+      System.exit(1);
+    }
+  }
+
+  private void applyMaxConcurrentStreams() {
+    if (builder == null) {
+      return;
+    }
+    maxConcurrentStreamsInterceptor = new MaxConcurrentStreamsInterceptor(maxConcurrentStreams);
+    builder.intercept(maxConcurrentStreamsInterceptor);
   }
 }
