@@ -311,15 +311,27 @@ public class ExternalProcessorServer {
    */
   public static ExternalProcessorServer serve(
       ServerOptions serverOptions, RequestProcessor processor, Logger logger) throws Exception {
+    ExternalProcessorServer server = startServerFromOptions(serverOptions, processor);
+    server.blockUntilShutdown();
+    return server;
+  }
+
+  /**
+   * Wire up and start an {@link ExternalProcessorServer} from the given {@link ServerOptions} and
+   * {@link RequestProcessor}, marking the service not serving so that graceful shutdown performs
+   * the unready propagation delay. Package-private so tests can drive the full serve lifecycle; the
+   * public {@link #serve} entry point is built on top of this.
+   */
+  static ExternalProcessorServer startServerFromOptions(
+      ServerOptions serverOptions, RequestProcessor processor) throws IOException {
     if (processor == null) {
       throw new IllegalArgumentException("processor is nil");
     }
     ExternalProcessorServer server = new ExternalProcessorServer();
-    server.markNotServingOnStop = true;
+    server.stopServingOnShutdown();
     server.builder(serverOptions);
     server.addRequestProcessor(processor);
     server.start();
-    server.blockUntilShutdown();
     return server;
   }
 
@@ -329,11 +341,20 @@ public class ExternalProcessorServer {
    */
   public static void mustServe(
       ServerOptions serverOptions, RequestProcessor processor, Logger logger) {
+    mustServeOrExit(serverOptions, processor, logger, () -> System.exit(1));
+  }
+
+  /**
+   * Package-private variant of {@link #mustServe} that routes the JVM exit through a supplied
+   * callable, so tests can exercise the failure path without terminating the JVM.
+   */
+  static void mustServeOrExit(
+      ServerOptions serverOptions, RequestProcessor processor, Logger logger, Runnable exit) {
     try {
       serve(serverOptions, processor, logger);
     } catch (Exception e) {
       logger.severe("extproc server failed to serve: " + e);
-      System.exit(1);
+      exit.run();
     }
   }
 
