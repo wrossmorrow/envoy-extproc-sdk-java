@@ -8,7 +8,7 @@ import java.util.Map;
 
 public class LoggingRequestProcessor implements RequestProcessor {
   public String getName() {
-    return "noop";
+    return "logging";
   }
 
   public ProcessingOptions getOptions() {
