@@ -91,6 +91,7 @@ public class RequestContext {
   protected int status;
   protected String requestId;
   protected String processorId;
+  protected final Map<String, Object> customData = new HashMap<String, Object>();
 
   protected RequestCase phase;
   protected Map<String, String> requestHeaders;
@@ -447,6 +448,28 @@ public class RequestContext {
     if (this.processorId != null) {
       this.processorId = processorId;
     }
+  }
+
+  /**
+   * Returns the custom data value stored under the given name for this request, or null if no value
+   * has been set for that name. Values set via {@link #setValue(String, Object)} persist across
+   * processing phases within the same stream.
+   */
+  public Object getValue(String name) {
+    return customData.get(name);
+  }
+
+  /**
+   * Returns the custom data value stored under the given name for this request, cast to the
+   * requested type, or null if no value has been set for that name.
+   */
+  public <T> T getValue(String name, Class<T> type) {
+    return type.cast(customData.get(name));
+  }
+
+  /** Stores a custom data value under the given name for this request. */
+  public void setValue(String name, Object value) {
+    customData.put(name, value);
   }
 
   public void continueAndReplace() {
