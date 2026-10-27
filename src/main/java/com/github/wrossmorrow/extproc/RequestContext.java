@@ -102,6 +102,7 @@ public class RequestContext {
   protected boolean finished;
   protected boolean replace;
   protected boolean cancelled;
+  protected boolean clearRouteCache;
   BodyMutation bodyMutation;
   ImmediateResponse immediateResponse;
 
@@ -136,6 +137,7 @@ public class RequestContext {
     cancelled = false;
     replace = false;
     endOfStream = false;
+    clearRouteCache = false;
     addHeaders = new ArrayList<HeaderValueOption>();
     removeHeaders = new ArrayList<String>();
     bodyMutation = BodyMutation.newBuilder().build();
@@ -505,6 +507,7 @@ public class RequestContext {
                         .addAllRemoveHeaders(removeHeaders)
                         .build())
                 .setBodyMutation(bodyMutation)
+                .setClearRouteCache(clearRouteCache)
                 .build())
         .build();
   }
@@ -520,6 +523,7 @@ public class RequestContext {
                         .addAllRemoveHeaders(removeHeaders)
                         .build())
                 .setBodyMutation(bodyMutation)
+                .setClearRouteCache(clearRouteCache)
                 .build())
         .build();
   }
@@ -646,5 +650,20 @@ public class RequestContext {
   public void clearBody() {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
     overwriteHeader("content-length", "0");
+  }
+
+  /** Signals that the route cache should be cleared before the next upstream request. */
+  public void clearRouteCache() {
+    this.clearRouteCache = true;
+  }
+
+  /** Clears the route-cache-clear signal. */
+  public void unClearRouteCache() {
+    this.clearRouteCache = false;
+  }
+
+  /** Whether a clear-route-cache signal is pending for the current phase. */
+  public boolean isClearRouteCache() {
+    return clearRouteCache;
   }
 }
