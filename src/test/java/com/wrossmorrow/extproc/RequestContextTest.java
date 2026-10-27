@@ -97,6 +97,48 @@ class ContextTest {
   }
 
   @Test
+  void phaseAccessorsDefaultToUnspecifiedPhase() {
+    RequestContext ctx = new RequestContext();
+    assertEquals(RequestCase.REQUEST_NOT_SET, ctx.getPhase());
+    assertEquals("UNDETERMINED", ctx.getPhaseName());
+    assertEquals(0, ctx.getPhaseNumber());
+  }
+
+  @Test
+  void phaseAccessorsReflectCurrentPhase() {
+    RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    assertEquals(RequestCase.REQUEST_HEADERS, ctx.getPhase());
+    assertEquals("REQUEST_HEADERS", ctx.getPhaseName());
+    assertEquals(1, ctx.getPhaseNumber());
+
+    ctx.reset(RequestCase.REQUEST_BODY);
+    assertEquals(RequestCase.REQUEST_BODY, ctx.getPhase());
+    assertEquals("REQUEST_BODY", ctx.getPhaseName());
+    assertEquals(2, ctx.getPhaseNumber());
+
+    ctx.reset(RequestCase.REQUEST_TRAILERS);
+    assertEquals(RequestCase.REQUEST_TRAILERS, ctx.getPhase());
+    assertEquals("REQUEST_TRAILERS", ctx.getPhaseName());
+    assertEquals(3, ctx.getPhaseNumber());
+
+    ctx.reset(RequestCase.RESPONSE_HEADERS);
+    assertEquals(RequestCase.RESPONSE_HEADERS, ctx.getPhase());
+    assertEquals("RESPONSE_HEADERS", ctx.getPhaseName());
+    assertEquals(4, ctx.getPhaseNumber());
+
+    ctx.reset(RequestCase.RESPONSE_BODY);
+    assertEquals(RequestCase.RESPONSE_BODY, ctx.getPhase());
+    assertEquals("RESPONSE_BODY", ctx.getPhaseName());
+    assertEquals(5, ctx.getPhaseNumber());
+
+    ctx.reset(RequestCase.RESPONSE_TRAILERS);
+    assertEquals(RequestCase.RESPONSE_TRAILERS, ctx.getPhase());
+    assertEquals("RESPONSE_TRAILERS", ctx.getPhaseName());
+    assertEquals(6, ctx.getPhaseNumber());
+  }
+
+  @Test
   void resetClearsArrays() {
     RequestContext ctx = new RequestContext();
     assertEquals(ctx.addHeaders.size(), 0);
