@@ -199,6 +199,43 @@ class ContextTest {
   }
 
   @Test
+  void replaceBodyReplacesWholeBodyAndUpdatesContentLength() {
+    RequestContext ctx = new RequestContext();
+    ctx.replaceBody("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertTrue(response.getRequestBody().getResponse().getBodyMutation().hasBody());
+    assertFalse(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
+    assertEquals(
+        ByteString.copyFromUtf8("hello"),
+        response.getRequestBody().getResponse().getBodyMutation().getBody());
+    assertEquals(1, ctx.addHeaders.size());
+    assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
+    assertEquals("5", ctx.addHeaders.get(0).getHeader().getValue());
+  }
+
+  @Test
+  void clearBodyClearsWholeBodyAndZeroesContentLength() {
+    RequestContext ctx = new RequestContext();
+    ctx.clearBody();
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertTrue(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
+    assertFalse(response.getRequestBody().getResponse().getBodyMutation().hasBody());
+    assertEquals(1, ctx.addHeaders.size());
+    assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
+    assertEquals("0", ctx.addHeaders.get(0).getHeader().getValue());
+  }
+
+  @Test
+  void emptyReplaceBodyIsNoOp() {
+    RequestContext ctx = new RequestContext();
+    ctx.replaceBody(new byte[0]);
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertFalse(response.getRequestBody().getResponse().getBodyMutation().hasBody());
+    assertFalse(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
+    assertEquals(0, ctx.addHeaders.size());
+  }
+
+  @Test
   void cancellingReturnsImmediateResponse() {
     RequestContext ctx = new RequestContext();
     ctx.cancelRequest(200, null, "OK");
