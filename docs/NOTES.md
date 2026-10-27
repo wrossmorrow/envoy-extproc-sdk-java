@@ -4,7 +4,7 @@
 > feature set of the Go and Rust SDKs. Companion to [`docs/alignment.md`](alignment.md)
 > (the summary/plan) and [`README.md`](../README.md) (the user-facing doc).
 >
-> **Status:** living working notes; updated as alignment work lands across sessions (2026-10-27: landed server options / `Serve` / `MustServe` / graceful shutdown / max concurrent streams).
+> **Status:** living working notes; updated as alignment work lands across sessions (2026-10-27: landed server options / `Serve` / `MustServe` / graceful shutdown / max concurrent streams; 2026-10-27 follow-up: landed JSON/YAML loaders, `Serve`/`MustServe` tests, and the full graceful-shutdown test matrix).
 
 This session's source material (all cloned and read locally under `/tmp`):
 
@@ -85,7 +85,7 @@ Full Go/Rust set (Prometheus simpleclient; private registry; served on metrics H
 
 - **Go/Rust `ServerOptions`:** `extproc_port` (50051), `metrics_http_port` (9090), `max_concurrent_streams` (1000), `unready_propagation_delay_seconds` (5), `termination_grace_period_seconds` (10); defaults; JSON/YAML loaders. `Serve(serverOptions, processor, logger) error`, `MustServe`.
 - **Graceful shutdown:** mark health `NOT_SERVING` → wait unready propagation delay → `GracefulStop` (GOAWAY, bounded by termination grace, force-stop fallback) → metrics shutdown → processor `Close(gracePeriodSeconds)`.
-- **Java status (2026-10-27):** the graceful-shutdown sequence landed in `ExternalProcessorServer.stop()` (pre-stop hooks → unready propagation wait → graceful stop w/ force-stop fallback → metrics shutdown → post-stop hooks), and `ServerOptions` + `builder(ServerOptions)` + `setMaxConcurrentStreams` + `Serve`/`MustServe` landed. JSON/YAML loaders and the full graceful-shutdown test matrix remain. **High gap (now mostly closed).**
+- **Java status (2026-10-27, follow-up):** the graceful-shutdown sequence landed in `ExternalProcessorServer.stop()` (pre-stop hooks → unready propagation wait → graceful stop w/ force-stop fallback → metrics shutdown → post-stop hooks), and `ServerOptions` + `builder(ServerOptions)` + `setMaxConcurrentStreams` + `Serve`/`MustServe` landed; JSON/YAML loaders landed. Follow-up landed: `Serve`/`MustServe` tests and the full graceful-shutdown test matrix (unready-propagation timing, force-stop fallback, metrics-shutdown ordering, processor-close ordering) landed in `ExternalProcessorServerTest`. **High gap (now mostly closed).**
 
 ### 1.9 Health
 
@@ -130,7 +130,7 @@ Full Go/Rust set (Prometheus simpleclient; private registry; served on metrics H
 
 1. Milestone 1 — processor error flow (error handler, abort policy, cancellation semantics, phase accessors). Highest value, lowest risk.
 2. Milestone 2 — context semantics (AllHeaders, body mutations, clear route cache, duration fix, full path).
-3. Milestone 3 — options, metrics, server lifecycle. **Largely landed as of 2026-10-27** (server options, `Serve`/`MustServe`, graceful shutdown, max concurrent streams; metrics and processor options landed earlier).
+3. Milestone 3 — options, metrics, server lifecycle. **Largely landed as of 2026-10-27**, with the remaining tail now landed (JSON/YAML loaders, `Serve`/`MustServe` tests, full graceful-shutdown test matrix).
 4. Milestone 4 — examples, harness, docs.
 5. Milestone 5 — release (`0.3.0`) + `MIGRATION.md`.
 
