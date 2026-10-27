@@ -261,6 +261,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         Map<String, String> responseHeaders = ctx.initializeResponse(protoResponseHeaders);
         ctx.endOfStream = request.getResponseHeaders().getEndOfStream();
         processor.processResponseHeaders(ctx, responseHeaders);
+        if (options.updateExtProcHeader) {
+          ctx.appendHeader("x-extproc-names", procname);
+        }
         break;
       case RESPONSE_BODY:
         String responseBodyString = request.getResponseBody().getBody().toStringUtf8();
@@ -291,6 +294,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case RESPONSE_HEADERS:
       case RESPONSE_BODY:
       case RESPONSE_TRAILERS:
+        if (options.updateDurationHeader) {
+          // the external processing duration is reported on end-of-stream responses only
+          if (ctx.streamComplete()) {
+            ctx.appendHeader(X_EXTPROC_DURATION_NS, String.valueOf(ctx.duration.toNanos()));
+          }
+        }
         if (options.downstreamDurationHeader) {
           logger.fine("Adding downstream duration headers");
           addDownstreamExtProcHeaders(ctx);
