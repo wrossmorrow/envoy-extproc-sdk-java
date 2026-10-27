@@ -95,6 +95,8 @@ public class RequestContext {
   protected RequestCase phase;
   protected Map<String, String> requestHeaders;
   protected Map<String, String> responseHeaders;
+  protected AllHeaders allRequestHeaders;
+  protected AllHeaders allResponseHeaders;
   protected boolean endOfStream;
   protected List<HeaderValueOption> addHeaders;
   protected List<String> removeHeaders;
@@ -122,6 +124,8 @@ public class RequestContext {
     duration = Duration.ZERO;
     requestHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+    allRequestHeaders = new AllHeaders();
+    allResponseHeaders = new AllHeaders();
     reset();
   }
 
@@ -173,6 +177,7 @@ public class RequestContext {
           requestId = val;
         } else {
           requestHeaders.put(key, val);
+          allRequestHeaders.add(key, val);
         }
       }
     }
@@ -235,6 +240,7 @@ public class RequestContext {
         }
       } else {
         responseHeaders.put(key, val);
+        allResponseHeaders.add(key, val);
       }
     }
     return responseHeaders;
@@ -273,6 +279,11 @@ public class RequestContext {
     return requestHeaders;
   }
 
+  /** All request headers (multi-value, raw-value capable) for the current phase. */
+  public AllHeaders getAllRequestHeaders() {
+    return allRequestHeaders;
+  }
+
   public String getRequestHeader(String name) {
     return requestHeaders.get(name);
   }
@@ -283,6 +294,11 @@ public class RequestContext {
 
   public Map<String, String> getResponseHeaders() {
     return responseHeaders;
+  }
+
+  /** All response headers (multi-value, raw-value capable) for the current phase. */
+  public AllHeaders getAllResponseHeaders() {
+    return allResponseHeaders;
   }
 
   public String getResponseHeader(String name) {

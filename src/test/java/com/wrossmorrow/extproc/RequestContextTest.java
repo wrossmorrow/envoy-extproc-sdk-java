@@ -236,6 +236,29 @@ class ContextTest {
   }
 
   @Test
+  void allRequestHeadersPreserveMultiValuesInWireOrder() {
+    RequestContext ctx = new RequestContext();
+    ctx.getAllRequestHeaders().add("x-multi", "a");
+    ctx.getAllRequestHeaders().add("x-multi", "b");
+    assertEquals(2, ctx.getAllRequestHeaders().values("x-multi").size());
+    assertEquals("a", ctx.getAllRequestHeaders().get("x-multi"));
+    assertEquals(0, ctx.getAllRequestHeaders().rawValues("x-multi").size());
+    assertTrue(ctx.getAllRequestHeaders().has("x-multi"));
+  }
+
+  @Test
+  void allResponseHeadersPopulateFromInit() {
+    RequestContext ctx = new RequestContext();
+    HeaderMap headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey("x-multi").setValue("a"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-multi").setValue("b"))
+            .build();
+    ctx.initializeResponse(headerMap);
+    assertEquals(2, ctx.getAllResponseHeaders().values("x-multi").size());
+  }
+
+  @Test
   void clearRouteCacheIsSurfacedInResponse() {
     RequestContext ctx = new RequestContext();
     ctx.clearRouteCache();
