@@ -25,8 +25,7 @@ public class TimerRequestProcessor implements RequestProcessor {
   }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
-    final Instant started = ctx.getStarted();
-    ctx.addHeader("x-extproc-started", started.toString());
+    ctx.overwriteHeader("x-extproc-started-ns", epochNanos(ctx.getStarted()));
   }
 
   public void processRequestBody(RequestContext ctx, String body) {}
@@ -35,24 +34,36 @@ public class TimerRequestProcessor implements RequestProcessor {
 
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
     if (ctx.streamComplete()) {
-      processComplete(ctx);
+      processComplete(ctx, false);
     }
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
     if (ctx.streamComplete()) {
-      processComplete(ctx);
+      processComplete(ctx, true);
     }
   }
 
   public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
 
-  protected void processComplete(RequestContext ctx) {
+  protected void processComplete(RequestContext ctx, boolean overwrite) {
     final Instant started = ctx.getStarted();
     final Instant finished = Instant.now();
     final Duration duration = Duration.between(started, finished);
-    ctx.addHeader("x-extproc-started", started.toString());
-    ctx.addHeader("x-extproc-finished", finished.toString());
-    ctx.addHeader("x-extproc-upstream-duration-ns", String.valueOf(duration.toNanos()));
+    final String startedNs = epochNanos(started);
+    final String finishedNs = epochNanos(finished);
+    if (overwrite) {
+      ctx.overwriteHeader("x-extproc-started-ns", startedNs);
+      ctx.overwriteHeader("x-extproc-finished-ns", finishedNs);
+      ctx.overwriteHeader("x-upstream-duration-ns", String.valueOf(duration.toNanos()));
+    } else {
+      ctx.addHeader("x-extproc-started-ns", startedNs);
+      ctx.addHeader("x-extproc-finished-ns", finishedNs);
+      ctx.addHeader("x-upstream-duration-ns", String.valueOf(duration.toNanos()));
+    }
+  }
+
+  protected String epochNanos(Instant instant) {
+    return String.valueOf(instant.getEpochSecond() * 1000000000L + instant.getNano());
   }
 }
