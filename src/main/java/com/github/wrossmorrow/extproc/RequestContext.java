@@ -329,6 +329,69 @@ public class RequestContext {
     return status;
   }
 
+  /** The processing phase currently being handled; defaults to "unspecified" before any phase. */
+  public RequestCase getPhase() {
+    if (phase == null) {
+      // no phase has been processed yet; treat as the default/unspecified phase
+      return RequestCase.REQUEST_NOT_SET;
+    }
+    return phase;
+  }
+
+  /**
+   * Human-readable name of the current processing phase, e.g. "REQUEST_HEADERS"; "UNDETERMINED" if
+   * unspecified.
+   */
+  public String getPhaseName() {
+    if (phase == null) {
+      return "UNDETERMINED";
+    }
+    switch (phase) {
+      case REQUEST_HEADERS:
+        return "REQUEST_HEADERS";
+      case REQUEST_BODY:
+        return "REQUEST_BODY";
+      case REQUEST_TRAILERS:
+        return "REQUEST_TRAILERS";
+      case RESPONSE_HEADERS:
+        return "RESPONSE_HEADERS";
+      case RESPONSE_BODY:
+        return "RESPONSE_BODY";
+      case RESPONSE_TRAILERS:
+        return "RESPONSE_TRAILERS";
+      default:
+        return "UNDETERMINED";
+    }
+  }
+
+  /**
+   * The numeric processing phase currently being handled; defaults to "unspecified" before any
+   * phase.
+   */
+  public int getPhaseNumber() {
+    if (phase == null) {
+      // no phase has been processed yet; treat as the default/unspecified phase
+      return 0;
+    }
+    switch (phase) {
+      case REQUEST_HEADERS:
+        return 1;
+      case REQUEST_BODY:
+        return 2;
+      case REQUEST_TRAILERS:
+        return 3;
+      case RESPONSE_HEADERS:
+        return 4;
+      case RESPONSE_BODY:
+        return 5;
+      case RESPONSE_TRAILERS:
+        return 6;
+      default:
+        // unspecified/unknown phases map to the default (unspecified) phase
+        return 0;
+    }
+  }
+
   // TODO: don't return null, throw a special "RequestNotInitialized" exception?
   // We don't know the request ID until we've seen the headers, but also do we
   // require a request ID? From the POV of the context, we can just generate one

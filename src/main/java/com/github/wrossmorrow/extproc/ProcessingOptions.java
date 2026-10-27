@@ -6,12 +6,15 @@ public class ProcessingOptions {
   public Boolean upstreamDurationHeader;
   public Boolean downstreamDurationHeader;
   public Boolean closeStreamOnEndOfStream;
+  public Boolean abortOnProcessorFailure;
 
   public ProcessingOptions() {
     logStream = Boolean.getBoolean("extproc.logs.stream");
     logPhases = Boolean.getBoolean("extproc.logs.phases");
     upstreamDurationHeader = Boolean.getBoolean("extproc.upstream.headers.duration");
     downstreamDurationHeader = Boolean.getBoolean("extproc.downstream.headers.duration");
+    closeStreamOnEndOfStream = Boolean.getBoolean("extproc.streams.closeOnEndOfStream");
+    abortOnProcessorFailure = Boolean.getBoolean("extproc.abort_on_processor_failure");
   }
 
   public String toString() {
@@ -21,6 +24,7 @@ public class ProcessingOptions {
     opts.append(" upstreamDurationHeader(" + upstreamDurationHeader + ")");
     opts.append(" downstreamDurationHeader(" + downstreamDurationHeader + ")");
     opts.append(" closeStreamOnEndOfStream(" + closeStreamOnEndOfStream + ")");
+    opts.append(" abortOnProcessorFailure(" + abortOnProcessorFailure + ")");
     return getClass().getName() + "@" + Integer.toHexString(hashCode()) + ": " + opts.toString();
   }
 }

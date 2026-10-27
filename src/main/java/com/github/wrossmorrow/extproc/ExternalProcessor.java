@@ -2,10 +2,16 @@ package com.github.wrossmorrow.extproc;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
+import build.buf.gen.envoy.service.ext_proc.v3.BodyResponse;
+import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse;
+import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse.ResponseStatus;
 import build.buf.gen.envoy.service.ext_proc.v3.ExternalProcessorGrpc;
+import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
+import build.buf.gen.envoy.service.ext_proc.v3.HeadersResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
+import build.buf.gen.envoy.service.ext_proc.v3.TrailersResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
@@ -15,6 +21,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.CancellationException;
 import java.util.logging.Logger;
 
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
@@ -97,23 +104,31 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
             responseObserver.onCompleted();
           }
         } catch (Throwable t) {
-          onError(t);
+          handlePhaseError(ctx, t);
         }
       }
 
       @Override
       public void onError(Throwable err) {
+        if (isStreamCancelled(err)) {
+          // the stream was cancelled (client going away mid-stream, envoy aborting); this is a
+          // graceful end, not a processing error, but still notify the error handler so the
+          // processor can clean up
+          notifyErrorHandler(ctx, err);
+          logger.fine("Request processing stream cancelled during " + ctx.getPhaseName());
+          // do not propagate the cancellation as a stream error
+          return;
+        }
+        // a genuine error: notify the error handler, then surface it to the response observer
+        notifyErrorHandler(ctx, err);
         if (err instanceof StatusRuntimeException) {
           StatusRuntimeException sre = (StatusRuntimeException) err;
-          if (sre.getStatus().getCode() == Status.CANCELLED.getCode()) {
-            logger.fine("Request processing stream cancelled during " + ctx.phase);
-          } else {
-            logger.severe("Encountered error in processing during " + ctx.phase + ": " + err);
-            responseObserver.onError(sre);
-          }
+          logger.severe(
+              "Encountered error in processing during " + ctx.getPhaseName() + ": " + err);
+          responseObserver.onError(sre);
         } else {
           logger.severe(
-              "Encountered internal error in processing during " + ctx.phase + ": " + err);
+              "Encountered internal error in processing during " + ctx.getPhaseName() + ": " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
@@ -122,10 +137,95 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
       @Override
       public void onCompleted() {
-        logger.fine("Request processing completed during " + ctx.phase);
+        logger.fine("Request processing completed during " + ctx.getPhaseName());
         responseObserver.onCompleted();
       }
+
+      /**
+       * Handles an error thrown while processing a phase: notifies the processor's error handler
+       * and then either aborts the stream (per the processor's abort policy) or sends an empty
+       * continue response and keeps the stream alive.
+       */
+      protected void handlePhaseError(RequestContext ctx, Throwable err) {
+        notifyErrorHandler(ctx, err);
+        if (options.abortOnProcessorFailure) {
+          StatusRuntimeException status =
+              Status.UNKNOWN
+                  .withDescription("processor failed and abort requested: " + err.getMessage())
+                  .asRuntimeException();
+          responseObserver.onError(status);
+          return;
+        }
+        // without aborting, send an empty continue response and keep the stream alive
+        responseObserver.onNext(emptyContinueResponse(ctx));
+      }
+
+      /**
+       * Notifies the processor's error handler; a throwing handler must not take down the stream.
+       */
+      protected void notifyErrorHandler(RequestContext ctx, Throwable err) {
+        try {
+          processor.errorHandler(ctx, ctx.getPhase(), err);
+        } catch (Throwable handlerErr) {
+          logger.severe(
+              "ErrorHandler itself threw during processing of phase "
+                  + ctx.getPhaseName()
+                  + ": "
+                  + handlerErr);
+        }
+      }
+
+      /** Whether the error is a stream cancellation rather than a processing failure. */
+      protected boolean isStreamCancelled(Throwable err) {
+        if (err == null) {
+          return false;
+        }
+        if (err instanceof StatusRuntimeException) {
+          return ((StatusRuntimeException) err).getStatus().getCode() == Status.CANCELLED.getCode();
+        }
+        return err instanceof CancellationException;
+      }
     };
+  }
+
+  /** Build an empty (continue) processing response for the given phase; never returns null. */
+  protected ProcessingResponse emptyContinueResponse(RequestContext ctx) {
+    final CommonResponse common =
+        CommonResponse.newBuilder().setStatus(ResponseStatus.CONTINUE).build();
+    switch (ctx.getPhase()) {
+      case REQUEST_HEADERS:
+        return ProcessingResponse.newBuilder()
+            .setRequestHeaders(HeadersResponse.newBuilder().setResponse(common).build())
+            .build();
+      case REQUEST_BODY:
+        return ProcessingResponse.newBuilder()
+            .setRequestBody(BodyResponse.newBuilder().setResponse(common).build())
+            .build();
+      case REQUEST_TRAILERS:
+        return ProcessingResponse.newBuilder()
+            .setRequestTrailers(
+                TrailersResponse.newBuilder()
+                    .setHeaderMutation(HeaderMutation.newBuilder().build())
+                    .build())
+            .build();
+      case RESPONSE_HEADERS:
+        return ProcessingResponse.newBuilder()
+            .setResponseHeaders(HeadersResponse.newBuilder().setResponse(common).build())
+            .build();
+      case RESPONSE_BODY:
+        return ProcessingResponse.newBuilder()
+            .setResponseBody(BodyResponse.newBuilder().setResponse(common).build())
+            .build();
+      case RESPONSE_TRAILERS:
+        return ProcessingResponse.newBuilder()
+            .setResponseTrailers(
+                TrailersResponse.newBuilder()
+                    .setHeaderMutation(HeaderMutation.newBuilder().build())
+                    .build())
+            .build();
+      default:
+        throw new RuntimeException("unknown request phase");
+    }
   }
 
   protected ProcessingResponse processPhase(ProcessingRequest request, RequestContext ctx) {

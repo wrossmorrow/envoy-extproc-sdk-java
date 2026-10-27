@@ -76,8 +76,9 @@ public class ExternalProcessorServer {
   public ExternalProcessorServer addRequestProcessor(RequestProcessor processor) {
     logger.fine("Adding request processor \"" + processor.getName() + "\" to server");
     builder.addService(new ExternalProcessor(processor, health));
-    // NOTE: processor.shutdown will be called _after_ the server is stopped
-    return addPostStopHook(() -> processor.shutdown());
+    // NOTE: processor.close will be called _after_ the server is stopped; processors
+    // implementing the default close(int) delegate to shutdown()
+    return addPostStopHook(() -> processor.close(gracePeriodSeconds));
   }
 
   /** Declare that, yes, we should set to NOT_SERVING before stopping */
