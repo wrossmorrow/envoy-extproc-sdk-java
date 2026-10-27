@@ -9,6 +9,7 @@ import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
 import com.google.protobuf.ByteString;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -136,6 +137,18 @@ class ContextTest {
     assertEquals(RequestCase.RESPONSE_TRAILERS, ctx.getPhase());
     assertEquals("RESPONSE_TRAILERS", ctx.getPhaseName());
     assertEquals(6, ctx.getPhaseNumber());
+  }
+
+  @Test
+  void durationAccumulatesAcrossPhases() {
+    RequestContext ctx = new RequestContext();
+    assertEquals(0, ctx.getDuration().toNanos());
+
+    ctx.updateDuration(RequestCase.REQUEST_HEADERS, Duration.ofNanos(100));
+    assertEquals(100, ctx.getDuration().toNanos());
+
+    ctx.updateDuration(RequestCase.REQUEST_BODY, Duration.ofNanos(50));
+    assertEquals(150, ctx.getDuration().toNanos());
   }
 
   @Test

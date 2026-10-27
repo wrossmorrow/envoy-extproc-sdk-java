@@ -264,7 +264,7 @@ public class RequestContext {
       default:
         break;
     }
-    this.duration.plus(duration);
+    this.duration = this.duration.plus(duration);
   }
 
   public Map<String, String> getRequestHeaders() {
