@@ -39,6 +39,9 @@ dependencies {
   implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
 
   runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
+
+  implementation 'io.prometheus:simpleclient:0.16.0'
+  implementation 'io.prometheus:simpleclient_httpserver:0.16.0'
   
   testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
   testImplementation "io.grpc:grpc-testing:${grpcVersion}"

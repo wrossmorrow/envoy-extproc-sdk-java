@@ -22,6 +22,7 @@ import java.time.Instant;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Logger;
 
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
@@ -65,6 +66,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
   protected ProcessingOptions options;
   protected HealthStatusManager health;
   protected Logger logger;
+  protected Metrics metrics = new Metrics();
 
   public ExternalProcessor(RequestProcessor processor, HealthStatusManager health) {
     this.processor = processor;
@@ -94,7 +96,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
     RequestContext ctx = new RequestContext();
 
+    metrics.totalStreams.inc();
+    metrics.activeStreams.inc();
+
     return new StreamObserver<ProcessingRequest>() {
+      final Instant streamStarted = Instant.now();
+      final AtomicBoolean errored = new AtomicBoolean(false);
 
       @Override
       public void onNext(ProcessingRequest request) {
@@ -104,6 +111,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
             responseObserver.onCompleted();
           }
         } catch (Throwable t) {
+          errored.set(true);
           handlePhaseError(ctx, t);
         }
       }
@@ -116,10 +124,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           // processor can clean up
           notifyErrorHandler(ctx, err);
           logger.fine("Request processing stream cancelled during " + ctx.getPhaseName());
+          finalizeStreamMetrics(false);
           // do not propagate the cancellation as a stream error
           return;
         }
         // a genuine error: notify the error handler, then surface it to the response observer
+        errored.set(true);
         notifyErrorHandler(ctx, err);
         if (err instanceof StatusRuntimeException) {
           StatusRuntimeException sre = (StatusRuntimeException) err;
@@ -133,12 +143,28 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
           responseObserver.onError(sre);
         }
+        finalizeStreamMetrics(true);
       }
 
       @Override
       public void onCompleted() {
         logger.fine("Request processing completed during " + ctx.getPhaseName());
+        finalizeStreamMetrics(errored.get());
         responseObserver.onCompleted();
+      }
+
+      /**
+       * Finalize per-stream metrics: decrement the active stream gauge, observe the stream and
+       * external-processing durations, and account for errored streams.
+       */
+      protected void finalizeStreamMetrics(boolean errored) {
+        metrics.activeStreams.dec();
+        metrics.streamDurationSeconds.observe(
+            Duration.between(streamStarted, Instant.now()).toSeconds());
+        metrics.externalProcessingSeconds.observe(ctx.getDuration().toSeconds());
+        if (errored) {
+          metrics.erroredStreams.inc();
+        }
       }
 
       /**
@@ -147,6 +173,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
        * continue response and keeps the stream alive.
        */
       protected void handlePhaseError(RequestContext ctx, Throwable err) {
+        metrics.phaseErrors.inc();
         notifyErrorHandler(ctx, err);
         if (options.abortOnProcessorFailure) {
           StatusRuntimeException status =
@@ -158,6 +185,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         }
         // without aborting, send an empty continue response and keep the stream alive
         responseObserver.onNext(emptyContinueResponse(ctx));
+        metrics.totalEmptyResponses.inc();
       }
 
       /**
@@ -245,16 +273,19 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         Map<String, String> requestHeaders = ctx.initializeRequest(protoRequestHeaders);
         ctx.endOfStream = request.getRequestHeaders().getEndOfStream();
         processor.processRequestHeaders(ctx, requestHeaders);
+        recordPhaseMetrics(phase, 0, 0);
         break;
       case REQUEST_BODY:
         String requestBodyString = request.getRequestBody().getBody().toStringUtf8();
         ctx.endOfStream = request.getRequestBody().getEndOfStream();
         processor.processRequestBody(ctx, requestBodyString);
+        recordPhaseMetrics(phase, request.getRequestBody().getBody().size(), 0);
         break;
       case REQUEST_TRAILERS:
         Map<String, String> requestTrailers =
             plainMapFromProtoHeaders(request.getRequestTrailers().getTrailers());
         processor.processRequestTrailers(ctx, requestTrailers);
+        recordPhaseMetrics(phase, 0, 0);
         break;
       case RESPONSE_HEADERS:
         HeaderMap protoResponseHeaders = request.getResponseHeaders().getHeaders();
@@ -264,16 +295,19 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         if (options.updateExtProcHeader) {
           ctx.appendHeader("x-extproc-names", procname);
         }
+        recordPhaseMetrics(phase, 0, 0);
         break;
       case RESPONSE_BODY:
         String responseBodyString = request.getResponseBody().getBody().toStringUtf8();
         ctx.endOfStream = request.getResponseBody().getEndOfStream();
         processor.processResponseBody(ctx, responseBodyString);
+        recordPhaseMetrics(phase, 0, request.getResponseBody().getBody().size());
         break;
       case RESPONSE_TRAILERS:
         Map<String, String> responseTrailers =
             plainMapFromProtoHeaders(request.getResponseTrailers().getTrailers());
         processor.processResponseTrailers(ctx, responseTrailers);
+        recordPhaseMetrics(phase, 0, 0);
         break;
       default:
         throw new RuntimeException("Unknown processing request type in " + phase);
@@ -310,6 +344,34 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     }
 
     return ctx.getResponse(phase);
+  }
+
+  /** Record per-phase processing metrics for the given phase and body byte counts. */
+  protected void recordPhaseMetrics(RequestCase phase, long receivedBytes, long returnedBytes) {
+    switch (phase) {
+      case REQUEST_HEADERS:
+        metrics.totalRequestHeaders.inc();
+        break;
+      case REQUEST_BODY:
+        metrics.totalRequestBody.inc();
+        metrics.requestBodyBytes.inc(receivedBytes);
+        break;
+      case REQUEST_TRAILERS:
+        metrics.totalRequestTrailers.inc();
+        break;
+      case RESPONSE_HEADERS:
+        metrics.totalResponseHeaders.inc();
+        break;
+      case RESPONSE_BODY:
+        metrics.totalResponseBody.inc();
+        metrics.responseBodyBytes.inc(returnedBytes);
+        break;
+      case RESPONSE_TRAILERS:
+        metrics.totalResponseTrailers.inc();
+        break;
+      default:
+        break;
+    }
   }
 
   protected void addUpstreamExtProcHeaders(RequestContext ctx) {

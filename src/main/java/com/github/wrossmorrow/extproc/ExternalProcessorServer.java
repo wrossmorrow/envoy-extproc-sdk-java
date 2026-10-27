@@ -7,7 +7,9 @@ import io.grpc.ServerBuilder;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
 import io.grpc.protobuf.services.HealthStatusManager;
 import io.grpc.protobuf.services.ProtoReflectionService;
+import io.prometheus.client.exporter.HTTPServer;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -27,6 +29,9 @@ public class ExternalProcessorServer {
   private HealthStatusManager health;
   private int port = 50051;
   private int gracePeriodSeconds = 30;
+  private Metrics metrics = new Metrics();
+  private int metricsPort = 9090;
+  private HTTPServer metricsServer;
   protected List<Runnable> preStopHooks = new ArrayList<Runnable>();
   protected List<Runnable> postStopHooks = new ArrayList<Runnable>();
   protected RequestProcessor processor;
@@ -63,6 +68,13 @@ public class ExternalProcessorServer {
   public ExternalProcessorServer setTerminationGracePeriodSeconds(int seconds) {
     logger.fine("Setting termination grace period to " + seconds + " seconds");
     gracePeriodSeconds = seconds;
+    return this;
+  }
+
+  /** Set the port for the Prometheus /metrics HTTP server. */
+  public ExternalProcessorServer setMetricsPort(int port) {
+    logger.fine("Updating metrics HTTP port to " + port);
+    metricsPort = port;
     return this;
   }
 
@@ -137,6 +149,10 @@ public class ExternalProcessorServer {
   public ExternalProcessorServer start() throws IOException {
     server = builder.build().start();
     logger.info("Server started, listening on " + port);
+    if (metricsServer == null) {
+      metricsServer = new HTTPServer(new InetSocketAddress(metricsPort), metrics.registry(), false);
+    }
+    logger.info("Metrics server started, listening on " + metricsPort);
     Runtime.getRuntime()
         .addShutdownHook(
             new Thread() {
@@ -171,6 +187,11 @@ public class ExternalProcessorServer {
       for (Runnable hook : postStopHooks) {
         hook.run();
       }
+    }
+    if (metricsServer != null) {
+      logger.fine("Stopping metrics server");
+      metricsServer.stop();
+      metricsServer = null;
     }
   }
 
