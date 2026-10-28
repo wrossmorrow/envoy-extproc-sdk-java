@@ -160,10 +160,10 @@ $ curl localhost:8080/hello -s -vvv | jq .
 < content-type: text/plain; charset=utf-8
 < x-envoy-upstream-service-time: 0
 < x-extproc-request-digest: c9f3c39472d7994b315edded7430515fac5160335ff9b831ed0910cf8d1faa5e
-< x-extproc-started: 2023-08-21T01:55:51.513855Z
-< x-extproc-finished: 2023-08-21T01:55:51.552927Z
+< x-extproc-started-ns: 2023-08-21T01:55:51.513855Z
+< x-extproc-finished-ns: 2023-08-21T01:55:51.552927Z
 < x-extproc-upstream-duration-ns: 39072000
-< x-extproc-response-seen: true
+< x-extproc-response: seen
 < x-extproc-duration-ns: echo=2000,dedup=3000,digest=4000,timer=5000,trivial=2000,noop=6000
 < server: envoy
 < x-request-id: c9792bc4-668a4e99-a89b-da559b1a7e87
@@ -192,10 +192,10 @@ $ curl localhost:8080/hello -s -vvv | jq .
     "X-Extproc-Request-Digest": [
       "c9f3c39472d7994b315edded7430515fac5160335ff9b831ed0910cf8d1faa5e"
     ],
-    "X-Extproc-Request-Seen": [
-      "true"
+    "X-Extproc-Request": [
+      "seen"
     ],
-    "X-Extproc-Started": [
+    "X-Extproc-Started-Ns": [
       "2023-08-21T01:55:51.513855Z"
     ],
     "X-Forwarded-Proto": [
@@ -209,11 +209,11 @@ $ curl localhost:8080/hello -s -vvv | jq .
   "Duration": 9084
 }
 ```
-All examples are defined in `src/main/java/extproc/processors`
+All examples are defined in `src/main/java/com/github/wrossmorrow/extproc/processors`
 
 ### No-op
 
-The `NoOpRequestProcessor` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-processors` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. This is also the default processor if you just boot up the SDK's `jar`.
+The `NoOpRequestProcessor` does absolutely nothing, except use the options. Verbose stream and phase logs are emitted, and headers `x-extproc-duration-ns` and `x-extproc-names` are added to the response to the client. These headers are not injected from the processor, but rather the SDK. This is also the default processor if you just boot up the SDK's `jar`.
 
 ### Trivial
 
@@ -249,7 +249,7 @@ The `DigestRequestProcessor` computes a (SHA256) digest of the request, specific
 
 ### Dedup
 
-The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `X-Echo-Delay` header to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
+The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `?delay=<int>` query param to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
 
 ### Logging
 
