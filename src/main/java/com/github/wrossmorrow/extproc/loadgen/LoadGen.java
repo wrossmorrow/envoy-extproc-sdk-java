@@ -280,12 +280,17 @@ public class LoadGen {
         continue;
       }
       ByteString raw = header.getRawValue();
-      if (raw == null || raw.size() == 0) {
+      String value = header.getValue();
+      if ((raw == null || raw.size() == 0) && (value == null || value.isEmpty())) {
+        // no usable value present (neither raw bytes nor string value)
         return null;
       }
+      String durationValue =
+          raw != null && raw.size() > 0
+              ? new String(raw.toByteArray(), java.nio.charset.StandardCharsets.UTF_8)
+              : value;
       try {
-        return Long.valueOf(
-            new String(raw.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim());
+        return Long.valueOf(durationValue.trim());
       } catch (Exception e) {
         return null;
       }
