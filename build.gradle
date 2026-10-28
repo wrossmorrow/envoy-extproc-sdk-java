@@ -75,6 +75,13 @@ tasks.named('test') {
     useJUnitPlatform()
 }
 
+tasks.register('loadGen', JavaExec) {
+    group = 'verification'
+    description = 'Run the plain gRPC load generator against an extproc server.'
+    mainClass = 'com.github.wrossmorrow.extproc.loadgen.LoadGen'
+    classpath = sourceSets.main.runtimeClasspath
+}
+
 test {
   useJUnit()
   useJUnitPlatform()
