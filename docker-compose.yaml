@@ -27,6 +27,9 @@ services:
   # extprocs
   noop:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -37,6 +40,9 @@ services:
     restart: always
   trivial:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -47,6 +53,9 @@ services:
     restart: always
   timer:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -57,6 +66,9 @@ services:
     restart: always
   throwing:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -67,6 +79,9 @@ services:
     restart: always
   digest:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -77,6 +92,9 @@ services:
     restart: always
   dedup:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -87,6 +105,9 @@ services:
     restart: always
   masker:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -97,6 +118,9 @@ services:
     restart: always
   data:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -107,6 +131,9 @@ services:
     restart: always
   router:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
@@ -117,6 +144,9 @@ services:
     restart: always
   echo:
     image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
     command:
       - -Dextproc.logs.phases=true
       - -Dextproc.upstream.headers.duration=true
