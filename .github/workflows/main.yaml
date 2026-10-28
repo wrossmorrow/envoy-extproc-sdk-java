@@ -21,7 +21,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6
         with:
-          java-version: '11'
+          java-version: ${{ vars.WORKING_JAVA_VERSION }}
           distribution: 'temurin'
       - uses: gradle/actions/setup-gradle@v6   # also validates the wrapper jar
       - name: Build, lint and test
@@ -38,7 +38,7 @@ jobs:
           name: jar
           path: build/libs/*.jar
 
-  image:
+  containerize:
     name: Publish image to GHCR
     runs-on: ubuntu-latest
     needs: build
@@ -68,6 +68,8 @@ jobs:
         uses: docker/build-push-action@v7
         with:
           context: .
+          build-args: |
+            DOCKER_BASE_JAVA_VERSION_TAG=${{ vars.DOCKER_BASE_JAVA_VERSION_TAG }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
