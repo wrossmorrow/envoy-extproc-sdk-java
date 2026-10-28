@@ -14,6 +14,7 @@ concurrency:
   cancel-in-progress: false   # let each merge finish publishing, in order
 
 jobs:
+
   build:
     name: Build & test
     runs-on: ubuntu-latest
