@@ -172,7 +172,9 @@ public class LoadGen {
         result.errors.add(new ExchangeError(index, outcome.error));
       } else {
         result.latencies.add(outcome.latency);
-        result.extprocDurationsNs.add(outcome.extprocDurationNs);
+        if (outcome.extprocDurationNs != null) {
+          result.extprocDurationsNs.add(outcome.extprocDurationNs);
+        }
       }
       index += stride;
     }
