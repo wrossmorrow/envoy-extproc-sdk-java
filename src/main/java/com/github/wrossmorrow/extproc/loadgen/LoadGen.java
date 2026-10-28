@@ -2,6 +2,8 @@ package com.github.wrossmorrow.extproc.loadgen;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
+import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
+import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.ExternalProcessorGrpc;
 import build.buf.gen.envoy.service.ext_proc.v3.HttpBody;
 import build.buf.gen.envoy.service.ext_proc.v3.HttpHeaders;
@@ -212,20 +214,42 @@ public class LoadGen {
             .build());
     requestObserver.onCompleted();
 
-    Long extprocDurationNs = extractDurationNs(responseObserver);
+    Long extprocDurationNs = extractDurationNs(responseObserver.lastResponse);
     Duration latency = Duration.between(start, Instant.now());
     String error = responseObserver.error == null ? null : responseObserver.error.getMessage();
     return new ExchangeOutcome(latency, extprocDurationNs, error);
   }
 
-  static Long extractDurationNs(ResponseCollector responseObserver) {
-    if (responseObserver.lastResponse == null) {
+  static Long extractDurationNs(ProcessingResponse response) {
+    if (response == null) {
       return null;
     }
-    if (responseObserver.lastResponse.hasOverrideMessageTimeout()) {
-      long seconds = responseObserver.lastResponse.getOverrideMessageTimeout().getSeconds();
-      int nanos = responseObserver.lastResponse.getOverrideMessageTimeout().getNanos();
-      return Long.valueOf(seconds * 1000000000L + nanos);
+    CommonResponse common;
+    if (response.getResponseCase() == ProcessingResponse.ResponseCase.RESPONSE_HEADERS) {
+      common = response.getResponseHeaders().getResponse();
+    } else if (response.getResponseCase() == ProcessingResponse.ResponseCase.RESPONSE_BODY) {
+      common = response.getResponseBody().getResponse();
+    } else {
+      return null;
+    }
+    if (common == null || !common.hasHeaderMutation()) {
+      return null;
+    }
+    for (HeaderValueOption option : common.getHeaderMutation().getSetHeadersList()) {
+      HeaderValue header = option.getHeader();
+      if (header == null || !DURATION_HEADER.equals(header.getKey())) {
+        continue;
+      }
+      ByteString raw = header.getRawValue();
+      if (raw == null || raw.size() == 0) {
+        return null;
+      }
+      try {
+        return Long.valueOf(
+            new String(raw.toByteArray(), java.nio.charset.StandardCharsets.UTF_8).trim());
+      } catch (Exception e) {
+        return null;
+      }
     }
     return null;
   }
