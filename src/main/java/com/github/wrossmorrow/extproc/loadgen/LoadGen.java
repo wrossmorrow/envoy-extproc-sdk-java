@@ -187,6 +187,7 @@ public class LoadGen {
     StreamObserver<ProcessingRequest> requestObserver = stub.process(responseObserver);
 
     // phase 1: request headers (not yet end of stream)
+    System.out.println("LoadGen: exchange starting, sending phase 1");
     responseObserver.latch = new CountDownLatch(1);
     requestObserver.onNext(
         ProcessingRequest.newBuilder()
@@ -198,6 +199,7 @@ public class LoadGen {
             .build());
     awaitExchange(responseObserver);
     ProcessingResponse response = responseObserver.lastResponse;
+    System.out.println("LoadGen: got response for phase 1: " + response.getResponseCase());
 
     // phase 2: request body (end of stream)
     responseObserver.latch = new CountDownLatch(1);
@@ -211,6 +213,7 @@ public class LoadGen {
             .build());
     awaitExchange(responseObserver);
     response = responseObserver.lastResponse;
+    System.out.println("LoadGen: got response for phase 2: " + response.getResponseCase());
 
     // phase 3: response headers (end of stream)
     responseObserver.latch = new CountDownLatch(1);
@@ -220,6 +223,7 @@ public class LoadGen {
             .build());
     awaitExchange(responseObserver);
     response = responseObserver.lastResponse;
+    System.out.println("LoadGen: got response for phase 3: " + response.getResponseCase());
 
     // phase 4: response body (end of stream)
     responseObserver.latch = new CountDownLatch(1);
@@ -234,6 +238,7 @@ public class LoadGen {
     requestObserver.onCompleted();
     awaitExchange(responseObserver);
     response = responseObserver.lastResponse;
+    System.out.println("LoadGen: got response for phase 4: " + response.getResponseCase());
 
     Long extprocDurationNs = extractDurationNs(response);
     Duration latency = Duration.between(start, Instant.now());
@@ -242,10 +247,12 @@ public class LoadGen {
   }
 
   static void awaitExchange(ResponseCollector responseObserver) {
+    System.out.println("LoadGen: awaiting processing response");
     try {
       if (!responseObserver.latch.await(30, TimeUnit.SECONDS)) {
         throw new RuntimeException("Timed out waiting for processing response");
       }
+      System.out.println("LoadGen: got processing response");
     } catch (InterruptedException e) {
       Thread.currentThread().interrupt();
       throw new RuntimeException("Interrupted while waiting for processing response", e);
