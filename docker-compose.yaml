@@ -124,4 +124,6 @@ services:
       - -Dextproc.class=com.github.wrossmorrow.extproc.processors.EchoRequestProcessor
       - -jar
       - /extproc/extproc.jar
+    ports:
+      - "50051:50051"
     restart: always
