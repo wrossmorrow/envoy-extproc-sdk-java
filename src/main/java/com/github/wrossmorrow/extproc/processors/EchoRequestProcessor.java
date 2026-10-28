@@ -6,9 +6,11 @@ import com.github.wrossmorrow.extproc.RequestProcessor;
 import com.github.wrossmorrow.extproc.RequestProcessorHealthManager;
 import java.util.Map;
 import java.util.logging.Logger;
+import java.util.regex.Pattern;
 
 public class EchoRequestProcessor implements RequestProcessor {
   private static final Logger logger = Logger.getLogger(EchoRequestProcessor.class.getName());
+  private static final Pattern ECHO_PATH = Pattern.compile("/echo/.*");
 
   public String getName() {
     return "echo";
@@ -25,26 +27,24 @@ public class EchoRequestProcessor implements RequestProcessor {
   }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
-    if (ctx.getPath().startsWith("/echo")) {
+    if (ECHO_PATH.matcher(ctx.getPath()).matches()) {
       if (ctx.streamComplete()) {
         logger.info(
             "EchoRequestProcessor.processRequestHeaders: "
                 + ctx.getPath()
                 + " responding before upstream");
-        String jsonResponse = "{\"path\": \"" + ctx.getPath() + "\"}";
-        ctx.cancelRequest(200, ctx.getRequestHeaders(), jsonResponse);
+        ctx.cancelRequest(200, ctx.getRequestHeaders(), "");
       }
     }
   }
 
   public void processRequestBody(RequestContext ctx, String body) {
-    if (ctx.getPath().startsWith("/echo")) {
+    if (ECHO_PATH.matcher(ctx.getPath()).matches()) {
       logger.info(
           "EchoRequestProcessor.processRequestBody: "
               + ctx.getPath()
               + " responding before upstream");
-      String jsonResponse = "{\"path\": \"" + ctx.getPath() + "\", \"body\": \"" + body + "\"}";
-      ctx.cancelRequest(200, ctx.getRequestHeaders(), jsonResponse);
+      ctx.cancelRequest(200, ctx.getRequestHeaders(), body);
     }
   }
 

@@ -36,7 +36,7 @@ public class DigestRequestProcessor implements RequestProcessor {
   }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
-    StringBuilder hashtext = new StringBuilder(ctx.getMethod() + ":" + ctx.getPath() + ":");
+    StringBuilder hashtext = new StringBuilder(ctx.getMethod() + ":" + ctx.getPath());
     if (ctx.streamComplete()) {
       String digest = SHAHash(hashtext);
       ctx.addHeader("x-extproc-request-digest", digest);
@@ -47,6 +47,7 @@ public class DigestRequestProcessor implements RequestProcessor {
 
   public void processRequestBody(RequestContext ctx, String body) {
     StringBuilder hashtext = hashtexts.get(ctx.getRequestId());
+    hashtext.append(":");
     hashtext.append(body);
     if (ctx.streamComplete()) {
       String digest = SHAHash(hashtext);
@@ -61,19 +62,15 @@ public class DigestRequestProcessor implements RequestProcessor {
     if (ctx.streamComplete()) {
       String digest = digests.getOrDefault(ctx.getRequestId(), "");
       ctx.addHeader("x-extproc-request-digest", digest);
-      ctx.addHeader("x-extproc-response-digest", digest);
       hashtexts.remove(ctx.getRequestId());
       digests.remove(ctx.getRequestId());
     }
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
-    StringBuilder hashtext = hashtexts.get(ctx.getRequestId());
-    hashtext.append(body);
     if (ctx.streamComplete()) {
-      String digest = digests.get(ctx.getRequestId());
+      String digest = digests.getOrDefault(ctx.getRequestId(), "");
       ctx.addHeader("x-extproc-request-digest", digest);
-      ctx.addHeader("x-extproc-response-digest", SHAHash(hashtext));
       hashtexts.remove(ctx.getRequestId());
       digests.remove(ctx.getRequestId());
     }

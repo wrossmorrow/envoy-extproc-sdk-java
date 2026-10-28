@@ -230,10 +230,9 @@ The `EchoRequestProcessor` is an example of using an ExtProc to _respond_ to a r
 envoyexternalprocessor-echo-1      | Aug 20, 2023 3:27:40 PM extproc.processors.EchoRequestProcessor processRequestHeaders
 envoyexternalprocessor-echo-1      | INFO: EchoRequestProcessor.processRequestBody: /echo/hello responding before upstream
 ```
-and a JSON response like 
+and a response like 
 ```json
 {
-  "path": "/echo/hello",
   "body": "some data here"
 }
 ```
