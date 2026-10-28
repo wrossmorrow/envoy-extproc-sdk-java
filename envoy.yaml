@@ -383,7 +383,7 @@ static_resources:
                       address: router
                       port_value: 50051
                   hostname: router
-      type: LOGICAL_D_NS
+      type: LOGICAL_DNS
       typed_extension_protocol_options:
         envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
