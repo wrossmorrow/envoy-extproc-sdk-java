@@ -8,7 +8,7 @@ plugins {
 }
 
 group 'com.github.wrossmorrow'
-version = (findProperty('releaseVersion') ?: '0.0.0-SNAPSHOT').toString().replaceFirst(/^v/, '')
+version = (findProperty('releaseVersion') ?: '0.3.0-SNAPSHOT').toString().replaceFirst(/^v/, '')
 
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
