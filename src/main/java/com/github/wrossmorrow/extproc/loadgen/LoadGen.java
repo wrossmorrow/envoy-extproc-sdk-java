@@ -182,6 +182,11 @@ public class LoadGen {
   }
 
   static ExchangeOutcome runExchange(ExternalProcessorGrpc.ExternalProcessorStub stub) {
+    return runExchange(stub, "{}");
+  }
+
+  static ExchangeOutcome runExchange(
+      ExternalProcessorGrpc.ExternalProcessorStub stub, String requestBodyJson) {
     Instant start = Instant.now();
     ResponseCollector responseObserver = new ResponseCollector();
     StreamObserver<ProcessingRequest> requestObserver = stub.process(responseObserver);
@@ -207,7 +212,7 @@ public class LoadGen {
         ProcessingRequest.newBuilder()
             .setRequestBody(
                 HttpBody.newBuilder()
-                    .setBody(ByteString.copyFromUtf8("{}"))
+                    .setBody(ByteString.copyFromUtf8(requestBodyJson))
                     .setEndOfStream(true)
                     .build())
             .build());
