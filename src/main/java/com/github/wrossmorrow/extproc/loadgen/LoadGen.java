@@ -82,8 +82,7 @@ public class LoadGen {
       host = addr.substring(0, colon);
       port = Integer.parseInt(addr.substring(colon + 1));
     }
-    ManagedChannel channel =
-        ManagedChannelBuilder.forAddress(host, port).useTransportSecurity().build();
+    ManagedChannel channel = ManagedChannelBuilder.forAddress(host, port).usePlaintext().build();
     ExternalProcessorGrpc.ExternalProcessorStub stub = ExternalProcessorGrpc.newStub(channel);
     ExecutorService executor = Executors.newFixedThreadPool(concurrency);
     try {
