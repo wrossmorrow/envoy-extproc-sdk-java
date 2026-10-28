@@ -23,6 +23,8 @@ jobs:
           java-version: ${{ vars.WORKING_JAVA_VERSION }}
           distribution: 'temurin'
       - uses: gradle/actions/setup-gradle@v6   # also validates the wrapper jar
+        with:
+          cache-provider: basic
       - name: Check formatting
         run: ./gradlew spotlessCheck
 
