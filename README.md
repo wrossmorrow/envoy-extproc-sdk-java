@@ -1,4 +1,3 @@
-
 # An Envoy ExternalProcessor SDK (java)
 
 ## Overview
@@ -19,7 +18,7 @@ Implement the `extproc.RequestProcessor` interface, and pass an instance to the 
 ```java
 package myextproc;
 
-import extproc.ExternalProcessorServer;
+import com.github.wrossmorrow.extproc.ExternalProcessorServer;
 
 public class MainClass {
     public void main() {
@@ -37,7 +36,7 @@ You can also supply your own server implementation, and use `ExternalProcessor`:
 ```java
 package myextproc;
 
-import extproc.ExternalProcessor;
+import com.github.wrossmorrow.extproc.ExternalProcessor;
 
 ExternalProcessor service = new ExternalProcessor(new MyRequestProcessor());
 ```
@@ -99,7 +98,7 @@ Your `RequestProcessor` implementation can use whatever storage strategy for you
 We also provide some convenience routines for operating on process phase stream responses, so that users of this SDK need to learn less (preferably nothing) about the specifics of the `envoy` datastructures. The gRPC stream response datastructures are complicated, and our aim is to utilize the `RequestContext` to guard and simplify the construction of responses with a simpler user interface. 
 
 In particular, the methods
-```go
+```java
 RequestContext.continueAndReplace()
 RequestContext.cancelRequest(int status, Map<String, String> headers, String body)
 ```
@@ -127,20 +126,23 @@ methods, requiring only names of headers to remove.
 
 ### Modifying Bodies
 
-Two methods help modify bodies: 
+The `RequestContext` exposes body-modification helpers covering both buffered and streamed semantics:
 ```java
-replaceBodyChunk(byte[] | String body)
-clearBodyChunk()
+replaceBody(byte[] body)          // replace the whole (buffered) body
+replaceBody(String body)          // replace the whole (buffered) body
+clearBody()                       // clear the whole (buffered) body
+replaceBodyChunk(byte[] body)   // replace a single chunk (buffered: the whole body)
+replaceBodyChunk(String body)   // replace a single chunk (buffered: the whole body)
+clearBodyChunk()                  // clear a single chunk (buffered: the whole body)
 ```
-These are the two options currently available in `envoy` ExtProcs: replace a chunk and clear the entire chunk. Note that with buffered bodies the "chunks" should be the entire body. See the [masker](#masker) example discussed below. 
 
 ## Examples
 
 You can run all the examples with 
 ```shell
-./gradlew clean build && docker-compose up --build
+./gradlew clean build && docker compose up --build
 ```
-The compose setup runs `envoy` (see `envoy.yaml`), a mock echo server (see `ghcr.io/wrossmorrow/simple-echo-server`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
+The compose setup runs `envoy` (see `envoy.yaml`), an upstream echo server (see `ghcr.io/wrossmorrow/simple-echo-server`), and several implementations of ExtProcs based on the SDK. These implementations are described below. 
 
 Here is some sample output with the compose setup running: 
 ```shell
@@ -164,7 +166,7 @@ $ curl localhost:8080/hello -s -vvv | jq .
 < x-extproc-response-seen: true
 < x-extproc-duration-ns: echo=2000,dedup=3000,digest=4000,timer=5000,trivial=2000,noop=6000
 < server: envoy
-< x-request-id: c9792bc4-668a-4e99-a89b-da559b1a7e87
+< x-request-id: c9792bc4-668a4e99-a89b-da559b1a7e87
 < transfer-encoding: chunked
 < 
 { [597 bytes data]
@@ -200,7 +202,7 @@ $ curl localhost:8080/hello -s -vvv | jq .
       "http"
     ],
     "X-Request-Id": [
-      "c9792bc4-668a-4e99-a89b-da559b1a7e87"
+      "c9792bc4-668a4e99-a89b-da559b1a7e87"
     ]
   },
   "Body": "",
@@ -248,3 +250,19 @@ The `DigestRequestProcessor` computes a (SHA256) digest of the request, specific
 ### Dedup
 
 The `DedupRequestProcessor` _uses_ a request digest as above and to reject requests when another request with the _same_ digest is still in flight (i.e., not yet responded to). You can utilize the `X-Echo-Delay` header to the proxied echo server to make one "long running" request in one terminal, and another similar request in another terminal and observe the second will have a `409` response. You can use a `PUT`/`POST`/`PATCH` and change the body in the second request and see it pass through. This is an example of "chained" external processors, as this depends on the `DigestRequestProcessor`. 
+
+### Logging
+
+The `LoggingRequestProcessor` logs each phase as it processes the request, using the options' verbose stream/phase logs, and is a minimal example of a processor that observes phases without modifying them.
+
+### Data
+
+The `DataRequestProcessor` stores a custom value (`customId`) in the request context during the request phase and surfaces it to the client in the response via a header, demonstrating the custom-data surface.
+
+### Router
+
+The `RouterRequestProcessor` routes a request to an upstream based on a request header or JSON body, using the custom-data surface and clearing the route cache, demonstrating header/body-driven routing.
+
+### Testing
+
+The `TestingRequestProcessor` is the processor used by the testing harness: it applies a JSON action body across the phases of an exchange (append/add/overwrite/remove headers, clear/replace bodies, cancel), and supports an upstream override via the `x-route-to-upstream` header.
