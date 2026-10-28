@@ -17,6 +17,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -186,6 +187,8 @@ public class LoadGen {
     ResponseCollector responseObserver = new ResponseCollector();
     StreamObserver<ProcessingRequest> requestObserver = stub.process(responseObserver);
 
+    // phase 1: request headers (not yet end of stream)
+    responseObserver.latch = new CountDownLatch(1);
     requestObserver.onNext(
         ProcessingRequest.newBuilder()
             .setRequestHeaders(
@@ -194,6 +197,11 @@ public class LoadGen {
                     .setEndOfStream(false)
                     .build())
             .build());
+    awaitExchange(responseObserver);
+    ProcessingResponse response = responseObserver.lastResponse;
+
+    // phase 2: request body (end of stream)
+    responseObserver.latch = new CountDownLatch(1);
     requestObserver.onNext(
         ProcessingRequest.newBuilder()
             .setRequestBody(
@@ -202,10 +210,20 @@ public class LoadGen {
                     .setEndOfStream(true)
                     .build())
             .build());
+    awaitExchange(responseObserver);
+    response = responseObserver.lastResponse;
+
+    // phase 3: response headers (end of stream)
+    responseObserver.latch = new CountDownLatch(1);
     requestObserver.onNext(
         ProcessingRequest.newBuilder()
             .setResponseHeaders(HttpHeaders.newBuilder().setEndOfStream(true).build())
             .build());
+    awaitExchange(responseObserver);
+    response = responseObserver.lastResponse;
+
+    // phase 4: response body (end of stream)
+    responseObserver.latch = new CountDownLatch(1);
     requestObserver.onNext(
         ProcessingRequest.newBuilder()
             .setResponseBody(
@@ -215,11 +233,24 @@ public class LoadGen {
                     .build())
             .build());
     requestObserver.onCompleted();
+    awaitExchange(responseObserver);
+    response = responseObserver.lastResponse;
 
-    Long extprocDurationNs = extractDurationNs(responseObserver.lastResponse);
+    Long extprocDurationNs = extractDurationNs(response);
     Duration latency = Duration.between(start, Instant.now());
     String error = responseObserver.error == null ? null : responseObserver.error.getMessage();
     return new ExchangeOutcome(latency, extprocDurationNs, error);
+  }
+
+  static void awaitExchange(ResponseCollector responseObserver) {
+    try {
+      if (!responseObserver.latch.await(30, TimeUnit.SECONDS)) {
+        throw new RuntimeException("Timed out waiting for processing response");
+      }
+    } catch (InterruptedException e) {
+      Thread.currentThread().interrupt();
+      throw new RuntimeException("Interrupted while waiting for processing response", e);
+    }
   }
 
   static Long extractDurationNs(ProcessingResponse response) {
@@ -283,10 +314,12 @@ public class LoadGen {
     ProcessingResponse lastResponse;
     Throwable error;
     boolean completed;
+    CountDownLatch latch = new CountDownLatch(0);
 
     @Override
     public void onNext(ProcessingResponse value) {
       lastResponse = value;
+      latch.countDown();
     }
 
     @Override
