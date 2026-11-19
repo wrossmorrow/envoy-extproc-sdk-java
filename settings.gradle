@@ -1,2 +1,10 @@
+pluginManagement {
+  repositories {
+    gradlePluginPortal()
+    maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
+    mavenCentral()
+  }
+}
+
 rootProject.name = 'extproc'
 include('src')
