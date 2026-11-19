@@ -7,10 +7,14 @@ import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
+import build.buf.gen.envoy.type.v3.StatusCode;
 import com.google.protobuf.ByteString;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class ContextTest {
@@ -199,40 +203,194 @@ class ContextTest {
   }
 
   @Test
-  void replaceBodyReplacesWholeBodyAndUpdatesContentLength() {
+  void replaceBodyReplacesWholeBodyAndUpdatesContentLengthInHeaderPhases() {
     RequestContext ctx = new RequestContext();
-    ctx.replaceBody("hello".getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    ctx.replaceBody("hello".getBytes(StandardCharsets.UTF_8));
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(response.getRequestHeaders().getResponse().hasBodyMutation());
+    assertTrue(response.getRequestHeaders().getResponse().getBodyMutation().hasBody());
+    assertFalse(response.getRequestHeaders().getResponse().getBodyMutation().getClearBody());
+    assertEquals(
+        ByteString.copyFromUtf8("hello"),
+        response.getRequestHeaders().getResponse().getBodyMutation().getBody());
+    assertEquals(1, ctx.addHeaders.size());
+    assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
+    assertEquals("", ctx.addHeaders.get(0).getHeader().getValue());
+    assertEquals("5", ctx.addHeaders.get(0).getHeader().getRawValue().toStringUtf8());
+  }
+
+  @Test
+  void replaceBodyDoesNotUpdateContentLengthInBodyPhases() {
+    RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_BODY);
+    ctx.replaceBody("hello".getBytes(StandardCharsets.UTF_8));
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
-    assertTrue(response.getRequestBody().getResponse().getBodyMutation().hasBody());
-    assertFalse(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
+    assertTrue(response.getRequestBody().getResponse().hasBodyMutation());
     assertEquals(
         ByteString.copyFromUtf8("hello"),
         response.getRequestBody().getResponse().getBodyMutation().getBody());
-    assertEquals(1, ctx.addHeaders.size());
-    assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
-    assertEquals("5", ctx.addHeaders.get(0).getHeader().getValue());
+    assertEquals(0, ctx.addHeaders.size());
+    assertFalse(response.getRequestBody().getResponse().hasHeaderMutation());
+
+    ctx.reset(RequestCase.RESPONSE_BODY);
+    ctx.replaceBody("world");
+    response = ctx.getResponse(RequestCase.RESPONSE_BODY);
+    assertTrue(response.getResponseBody().getResponse().hasBodyMutation());
+    assertEquals(
+        ByteString.copyFromUtf8("world"),
+        response.getResponseBody().getResponse().getBodyMutation().getBody());
+    assertEquals(0, ctx.addHeaders.size());
+    assertFalse(response.getResponseBody().getResponse().hasHeaderMutation());
   }
 
   @Test
-  void clearBodyClearsWholeBodyAndZeroesContentLength() {
+  void clearBodyClearsWholeBodyAndZeroesContentLengthOnlyInHeaderPhases() {
     RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.RESPONSE_HEADERS);
     ctx.clearBody();
-    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
-    assertTrue(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
-    assertFalse(response.getRequestBody().getResponse().getBodyMutation().hasBody());
+    ProcessingResponse response = ctx.getResponse(RequestCase.RESPONSE_HEADERS);
+    assertTrue(response.getResponseHeaders().getResponse().hasBodyMutation());
+    assertTrue(response.getResponseHeaders().getResponse().getBodyMutation().getClearBody());
+    assertFalse(response.getResponseHeaders().getResponse().getBodyMutation().hasBody());
     assertEquals(1, ctx.addHeaders.size());
     assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
-    assertEquals("0", ctx.addHeaders.get(0).getHeader().getValue());
+    assertEquals("0", ctx.addHeaders.get(0).getHeader().getRawValue().toStringUtf8());
+
+    ctx.reset(RequestCase.RESPONSE_BODY);
+    ctx.clearBody();
+    response = ctx.getResponse(RequestCase.RESPONSE_BODY);
+    assertTrue(response.getResponseBody().getResponse().getBodyMutation().getClearBody());
+    assertEquals(0, ctx.addHeaders.size());
+    assertFalse(response.getResponseBody().getResponse().hasHeaderMutation());
   }
 
   @Test
-  void emptyReplaceBodyIsNoOp() {
+  void emptyReplaceBodyClearsBodyAndNullIsNoOp() {
     RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_BODY);
     ctx.replaceBody(new byte[0]);
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertTrue(response.getRequestBody().getResponse().hasBodyMutation());
     assertFalse(response.getRequestBody().getResponse().getBodyMutation().hasBody());
-    assertFalse(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
+    assertTrue(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
     assertEquals(0, ctx.addHeaders.size());
+
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    ctx.replaceBody("");
+    response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(response.getRequestHeaders().getResponse().getBodyMutation().getClearBody());
+    assertEquals(1, ctx.addHeaders.size());
+    assertEquals("content-length", ctx.addHeaders.get(0).getHeader().getKey());
+    assertEquals("0", ctx.addHeaders.get(0).getHeader().getRawValue().toStringUtf8());
+
+    ctx.reset(RequestCase.REQUEST_BODY);
+    ctx.replaceBody((byte[]) null);
+    ctx.replaceBody((String) null);
+    response = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertFalse(response.getRequestBody().getResponse().hasBodyMutation());
+    assertFalse(response.getRequestBody().getResponse().hasHeaderMutation());
+  }
+
+  @Test
+  void updateAndRemoveHeaderLowercaseKeysAndUseRawValue() {
+    RequestContext ctx = new RequestContext();
+    ctx.addHeader("X-Custom-Header", "Val-1");
+    ctx.appendHeader("X-Another", "Val-2");
+    ctx.overwriteHeader("X-Overwrite", "Val-3");
+    ctx.removeHeader("X-Remove-Me");
+
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation hm = response.getRequestHeaders().getResponse().getHeaderMutation();
+    assertEquals(3, hm.getSetHeadersCount());
+    assertEquals("x-custom-header", hm.getSetHeaders(0).getHeader().getKey());
+    assertEquals("", hm.getSetHeaders(0).getHeader().getValue());
+    assertEquals(ByteString.copyFromUtf8("Val-1"), hm.getSetHeaders(0).getHeader().getRawValue());
+    assertEquals("x-another", hm.getSetHeaders(1).getHeader().getKey());
+    assertEquals("Val-2", hm.getSetHeaders(1).getHeader().getRawValue().toStringUtf8());
+    assertEquals("x-overwrite", hm.getSetHeaders(2).getHeader().getKey());
+    assertEquals("Val-3", hm.getSetHeaders(2).getHeader().getRawValue().toStringUtf8());
+    assertEquals(1, hm.getRemoveHeadersCount());
+    assertEquals("x-remove-me", hm.getRemoveHeaders(0));
+  }
+
+  @Test
+  void responsesOmitEmptyHeaderAndBodyMutations() {
+    RequestContext ctx = new RequestContext();
+    ProcessingResponse reqHeaders = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertFalse(reqHeaders.getRequestHeaders().getResponse().hasHeaderMutation());
+    assertFalse(reqHeaders.getRequestHeaders().getResponse().hasBodyMutation());
+
+    ProcessingResponse reqBody = ctx.getResponse(RequestCase.REQUEST_BODY);
+    assertFalse(reqBody.getRequestBody().getResponse().hasHeaderMutation());
+    assertFalse(reqBody.getRequestBody().getResponse().hasBodyMutation());
+
+    ProcessingResponse respHeaders = ctx.getResponse(RequestCase.RESPONSE_HEADERS);
+    assertFalse(respHeaders.getResponseHeaders().getResponse().hasHeaderMutation());
+    assertFalse(respHeaders.getResponseHeaders().getResponse().hasBodyMutation());
+
+    ProcessingResponse respBody = ctx.getResponse(RequestCase.RESPONSE_BODY);
+    assertFalse(respBody.getResponseBody().getResponse().hasHeaderMutation());
+    assertFalse(respBody.getResponseBody().getResponse().hasBodyMutation());
+
+    ProcessingResponse reqTrailers = ctx.getResponse(RequestCase.REQUEST_TRAILERS);
+    assertFalse(reqTrailers.getRequestTrailers().hasHeaderMutation());
+
+    ProcessingResponse respTrailers = ctx.getResponse(RequestCase.RESPONSE_TRAILERS);
+    assertFalse(respTrailers.getResponseTrailers().hasHeaderMutation());
+  }
+
+  @Test
+  void setProcessorIdSetsOnceWhenPreviouslyNull() {
+    RequestContext ctx = new RequestContext();
+    assertNull(ctx.getProcessorId());
+    ctx.setProcessorId("proc-1");
+    assertEquals("proc-1", ctx.getProcessorId());
+    ctx.setProcessorId("proc-2");
+    assertEquals("proc-1", ctx.getProcessorId());
+  }
+
+  @Test
+  void initializeRequestKeepsRequestIdInRequestHeaders() {
+    RequestContext ctx = new RequestContext();
+    HeaderMap headerMap =
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey(":method").setValue("GET"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-request-id").setValue("req-123"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-other").setValue("abc"))
+            .build();
+    ctx.initializeRequest(headerMap);
+    assertEquals("req-123", ctx.getRequestId());
+    assertEquals("req-123", ctx.getRequestHeader("x-request-id"));
+    assertEquals("req-123", ctx.getAllRequestHeaders().get("x-request-id"));
+    assertEquals("abc", ctx.getRequestHeader("x-other"));
+  }
+
+  @Test
+  void cancelRequestHandlesInvalidStatusAndIsolatesHeaders() {
+    RequestContext ctx = new RequestContext();
+    ctx.addHeader("x-prior", "should-not-leak");
+    ctx.removeHeader("x-prior-remove");
+
+    Map<String, String> cancelHeaders = new HashMap<String, String>();
+    cancelHeaders.put("X-Cancel-Reason", "denied");
+    ctx.cancelRequest(0, cancelHeaders, "bad");
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertEquals(StatusCode.BadRequest, response.getImmediateResponse().getStatus().getCode());
+    assertEquals("bad", response.getImmediateResponse().getBody());
+    HeaderMutation hm = response.getImmediateResponse().getHeaders();
+    assertEquals(1, hm.getSetHeadersCount());
+    assertEquals(0, hm.getRemoveHeadersCount());
+    assertEquals("x-cancel-reason", hm.getSetHeaders(0).getHeader().getKey());
+    assertEquals("", hm.getSetHeaders(0).getHeader().getValue());
+    assertEquals("denied", hm.getSetHeaders(0).getHeader().getRawValue().toStringUtf8());
+
+    RequestContext unknownStatusCtx = new RequestContext();
+    unknownStatusCtx.cancelRequest(999, Collections.<String, String>emptyMap(), "unknown");
+    ProcessingResponse unknownResp = unknownStatusCtx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertEquals(
+        StatusCode.InternalServerError, unknownResp.getImmediateResponse().getStatus().getCode());
+    assertFalse(unknownResp.getImmediateResponse().hasHeaders());
   }
 
   @Test

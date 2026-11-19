@@ -137,7 +137,7 @@ class TestingRequestProcessorIntegrationTest {
         common.getHeaderMutation().getSetHeadersList()) {
       HeaderValue header = option.getHeader();
       if (header != null && "x-add-me".equalsIgnoreCase(header.getKey())) {
-        assertEquals("true", header.getValue());
+        assertEquals("true", header.getRawValue().toStringUtf8());
         found = true;
       }
     }
@@ -157,7 +157,7 @@ class TestingRequestProcessorIntegrationTest {
         common.getHeaderMutation().getSetHeadersList()) {
       HeaderValue header = option.getHeader();
       if (header != null && "x-add-me".equalsIgnoreCase(header.getKey())) {
-        assertEquals("true", header.getValue());
+        assertEquals("true", header.getRawValue().toStringUtf8());
         found = true;
       }
     }

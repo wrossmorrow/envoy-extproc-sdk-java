@@ -102,12 +102,16 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     return new StreamObserver<ProcessingRequest>() {
       final Instant streamStarted = Instant.now();
       final AtomicBoolean errored = new AtomicBoolean(false);
+      final AtomicBoolean responseClosed = new AtomicBoolean(false);
 
       @Override
       public void onNext(ProcessingRequest request) {
+        if (responseClosed.get()) {
+          return;
+        }
         try {
           responseObserver.onNext(processPhase(request, ctx));
-          if (ctx.isProcessingComplete()) {
+          if (ctx.isProcessingComplete() && responseClosed.compareAndSet(false, true)) {
             responseObserver.onCompleted();
           }
         } catch (Throwable t) {
@@ -135,13 +139,17 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           StatusRuntimeException sre = (StatusRuntimeException) err;
           logger.severe(
               "Encountered error in processing during " + ctx.getPhaseName() + ": " + err);
-          responseObserver.onError(sre);
+          if (responseClosed.compareAndSet(false, true)) {
+            responseObserver.onError(sre);
+          }
         } else {
           logger.severe(
               "Encountered internal error in processing during " + ctx.getPhaseName() + ": " + err);
           StatusRuntimeException sre =
               Status.INTERNAL.withDescription(err.getMessage()).asRuntimeException();
-          responseObserver.onError(sre);
+          if (responseClosed.compareAndSet(false, true)) {
+            responseObserver.onError(sre);
+          }
         }
         finalizeStreamMetrics(true);
       }
@@ -150,7 +158,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       public void onCompleted() {
         logger.fine("Request processing completed during " + ctx.getPhaseName());
         finalizeStreamMetrics(errored.get());
-        responseObserver.onCompleted();
+        if (responseClosed.compareAndSet(false, true)) {
+          responseObserver.onCompleted();
+        }
       }
 
       /**
@@ -180,12 +190,16 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
               Status.UNKNOWN
                   .withDescription("processor failed and abort requested: " + err.getMessage())
                   .asRuntimeException();
-          responseObserver.onError(status);
+          if (responseClosed.compareAndSet(false, true)) {
+            responseObserver.onError(status);
+          }
           return;
         }
         // without aborting, send an empty continue response and keep the stream alive
-        responseObserver.onNext(emptyContinueResponse(ctx));
-        metrics.totalEmptyResponses.inc();
+        if (!responseClosed.get()) {
+          responseObserver.onNext(emptyContinueResponse(ctx));
+          metrics.totalEmptyResponses.inc();
+        }
       }
 
       /**
@@ -284,6 +298,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_TRAILERS:
         Map<String, String> requestTrailers =
             plainMapFromProtoHeaders(request.getRequestTrailers().getTrailers());
+        ctx.endOfStream = true;
         processor.processRequestTrailers(ctx, requestTrailers);
         recordPhaseMetrics(phase, 0, 0);
         break;
@@ -306,6 +321,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case RESPONSE_TRAILERS:
         Map<String, String> responseTrailers =
             plainMapFromProtoHeaders(request.getResponseTrailers().getTrailers());
+        ctx.endOfStream = true;
         processor.processResponseTrailers(ctx, responseTrailers);
         recordPhaseMetrics(phase, 0, 0);
         break;
@@ -318,7 +334,6 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     ctx.updateDuration(phase, Duration.between(phaseStarted, Instant.now()));
     switch (phase) {
       case REQUEST_HEADERS:
-      case REQUEST_BODY:
       case REQUEST_TRAILERS:
         if (options.upstreamDurationHeader) {
           logger.fine("Adding upstream duration headers");
@@ -326,7 +341,6 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         }
         break;
       case RESPONSE_HEADERS:
-      case RESPONSE_BODY:
       case RESPONSE_TRAILERS:
         if (options.updateDurationHeader) {
           // the external processing duration is reported on end-of-stream responses only
@@ -412,7 +426,11 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       return headers;
     }
     for (HeaderValue hv : protoHeaders.getHeadersList()) {
-      headers.put(hv.getKey(), hv.getValue());
+      String value = hv.getValue();
+      if (value.isEmpty() && !hv.getRawValue().isEmpty()) {
+        value = hv.getRawValue().toStringUtf8();
+      }
+      headers.put(hv.getKey(), value);
     }
     return headers;
   }
