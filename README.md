@@ -89,7 +89,7 @@ The `RequestContext` is initialized with some request data when request headers 
 * _all_ response headers in a case-insensitive `Map<String, String>` (when available)
 * the request processing stream start time `started`
 * an accumulator `duration` _for the time spent in external processing_
-* a flag-method `streamComplete` within header and body phases to know when request phase data is complete
+* a flag-method `streamComplete` within header, body, and trailer phases to know when phase data is complete
 
 This context is carried through every request phase, and passed to the interface methods. In particular, your implementation can store data in memory related to specific requests keyed on the request ID or via another strategy of your choosing. You can supply your own ID, which can be stored in the context, if that suits your needs better, using `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 
@@ -106,7 +106,7 @@ In particular, the methods
 RequestContext.continueAndReplace()
 RequestContext.cancelRequest(int status, Map<String, String> headers, String body)
 ```
-effectively signal request phase responses "replacing" the request for upstream processing and "responding immediately" (respectively). If you `replace` you won't get further filter requests (the `proto` comments suggest this as a mechanism to convert a `GET` to a `PUT`/`POST`/`PATCH`). Note also that "cancelling" does not necessarily mean request _failure_; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. After you call `cancelRequest` you should no longer modify request data like headers or the body, as this method prepares the response. 
+effectively signal request phase responses "replacing" the request for upstream processing and "responding immediately" (respectively). If you `replace` you won't get further filter requests (the `proto` comments suggest this as a mechanism to convert a `GET` to a `PUT`/`POST`/`PATCH`). Note also that "cancelling" does not necessarily mean request _failure_; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. `cancelRequest` builds the immediate response headers solely from the `headers` map passed to it (prior header mutations in the same phase are not included) and defaults `status <= 0` to `400`. After you call `cancelRequest` you should no longer modify request data like headers or the body, as this method prepares the response. 
 
 ### Modifying Headers
 
@@ -119,7 +119,7 @@ appendHeaders(Map<String, String> headers)
 addHeaders(Map<String, String> headers)
 overwriteHeaders(Map<String, String> headers)
 ```
-where `append` adds header values if they exist, `add` adds a new value only if the header doesn't exist, and `overwrite` will add or overwrite if a header exists. The `RequestContext` should keep track of these headers and include them in a formal response to `envoy`. 
+where `append` adds header values if they exist, `add` adds a new value only if the header doesn't exist, and `overwrite` will add or overwrite if a header exists. Header names are lowercased and encoded using Envoy's `raw_value` UTF-8 bytes. The `RequestContext` should keep track of these headers and include them in a formal response to `envoy`. 
 
 Headers can be removed with the
 ```java
@@ -139,6 +139,7 @@ replaceBodyChunk(byte[] body)   // replace a single chunk (buffered: the whole b
 replaceBodyChunk(String body)   // replace a single chunk (buffered: the whole body)
 clearBodyChunk()                  // clear a single chunk (buffered: the whole body)
 ```
+Passing `null` to `replaceBody` is a no-op, while passing an empty `byte[0]` or `""` delegates to `clearBody()`. Both `replaceBody` and `clearBody` update the `content-length` header only during header phases (`REQUEST_HEADERS` / `RESPONSE_HEADERS`), not during body phases (`REQUEST_BODY` / `RESPONSE_BODY`).
 
 ## Examples
 
