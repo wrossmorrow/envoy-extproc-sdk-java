@@ -24,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
@@ -145,7 +146,7 @@ public class RequestContext {
     clearRouteCache = false;
     addHeaders = new ArrayList<HeaderValueOption>();
     removeHeaders = new ArrayList<String>();
-    bodyMutation = BodyMutation.newBuilder().build();
+    bodyMutation = null;
   }
 
   /** context initialization routine */
@@ -176,10 +177,9 @@ public class RequestContext {
       } else {
         if (key.equalsIgnoreCase(requestIdHeaderName)) {
           requestId = val;
-        } else {
-          requestHeaders.put(key, val);
-          allRequestHeaders.add(key, val);
         }
+        requestHeaders.put(key, val);
+        allRequestHeaders.add(key, val);
       }
     }
     return requestHeaders;
@@ -445,7 +445,7 @@ public class RequestContext {
   }
 
   public void setProcessorId(String processorId) {
-    if (this.processorId != null) {
+    if (this.processorId == null) {
       this.processorId = processorId;
     }
   }
@@ -491,19 +491,32 @@ public class RequestContext {
   /** NOTE: immediate response only accepts string bodies */
   public void cancelRequest(int status, Map<String, String> headers, String body) {
     cancelled = true;
-    if (headers != null) {
-      appendHeaders(headers);
+    int effectiveStatus = status <= 0 ? 400 : status;
+    StatusCode statusCode = StatusCode.forNumber(effectiveStatus);
+    if (statusCode == null) {
+      statusCode = StatusCode.InternalServerError;
     }
-    immediateResponse =
+    ImmediateResponse.Builder builder =
         ImmediateResponse.newBuilder()
-            .setStatus(HttpStatus.newBuilder().setCode(StatusCode.forNumber(status)).build())
-            .setHeaders(
-                HeaderMutation.newBuilder()
-                    .addAllSetHeaders(addHeaders)
-                    .addAllRemoveHeaders(removeHeaders)
-                    .build())
-            .setBody(body == null ? "" : body)
-            .build();
+            .setStatus(HttpStatus.newBuilder().setCode(statusCode).build())
+            .setBody(body == null ? "" : body);
+    if (headers != null && !headers.isEmpty()) {
+      HeaderMutation.Builder headerMutation = HeaderMutation.newBuilder();
+      for (Map.Entry<String, String> entry : headers.entrySet()) {
+        String key = entry.getKey();
+        String value = entry.getValue();
+        if (key == null || key.isEmpty() || value == null) {
+          continue;
+        }
+        headerMutation.addSetHeaders(
+            buildHeaderValueOption(
+                key, value, HeaderValueOption.HeaderAppendAction.APPEND_IF_EXISTS_OR_ADD));
+      }
+      if (headerMutation.getSetHeadersCount() > 0) {
+        builder.setHeaders(headerMutation.build());
+      }
+    }
+    immediateResponse = builder.build();
   }
 
   /** return the response for a given phase; will not return null but may throw */
@@ -536,45 +549,41 @@ public class RequestContext {
   }
 
   protected HeadersResponse prepareHeadersResponse() {
-    return HeadersResponse.newBuilder()
-        .setResponse(
-            CommonResponse.newBuilder()
-                .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
-                .setHeaderMutation(
-                    HeaderMutation.newBuilder()
-                        .addAllSetHeaders(addHeaders)
-                        .addAllRemoveHeaders(removeHeaders)
-                        .build())
-                .setBodyMutation(bodyMutation)
-                .setClearRouteCache(clearRouteCache)
-                .build())
-        .build();
+    return HeadersResponse.newBuilder().setResponse(prepareCommonResponse()).build();
   }
 
   protected BodyResponse prepareBodyResponse() {
-    return BodyResponse.newBuilder()
-        .setResponse(
-            CommonResponse.newBuilder()
-                .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
-                .setHeaderMutation(
-                    HeaderMutation.newBuilder()
-                        .addAllSetHeaders(addHeaders)
-                        .addAllRemoveHeaders(removeHeaders)
-                        .build())
-                .setBodyMutation(bodyMutation)
-                .setClearRouteCache(clearRouteCache)
-                .build())
-        .build();
+    return BodyResponse.newBuilder().setResponse(prepareCommonResponse()).build();
+  }
+
+  private CommonResponse prepareCommonResponse() {
+    CommonResponse.Builder common =
+        CommonResponse.newBuilder()
+            .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
+            .setClearRouteCache(clearRouteCache);
+    if (!addHeaders.isEmpty() || !removeHeaders.isEmpty()) {
+      common.setHeaderMutation(
+          HeaderMutation.newBuilder()
+              .addAllSetHeaders(addHeaders)
+              .addAllRemoveHeaders(removeHeaders)
+              .build());
+    }
+    if (bodyMutation != null) {
+      common.setBodyMutation(bodyMutation);
+    }
+    return common.build();
   }
 
   protected TrailersResponse prepareTrailersResponse() {
-    return TrailersResponse.newBuilder()
-        .setHeaderMutation(
-            HeaderMutation.newBuilder()
-                .addAllSetHeaders(addHeaders)
-                .addAllRemoveHeaders(removeHeaders)
-                .build())
-        .build();
+    TrailersResponse.Builder builder = TrailersResponse.newBuilder();
+    if (!addHeaders.isEmpty() || !removeHeaders.isEmpty()) {
+      builder.setHeaderMutation(
+          HeaderMutation.newBuilder()
+              .addAllSetHeaders(addHeaders)
+              .addAllRemoveHeaders(removeHeaders)
+              .build());
+    }
+    return builder.build();
   }
 
   public void appendHeader(String name, String value) {
@@ -593,7 +602,7 @@ public class RequestContext {
     if (name == null || name.isEmpty()) {
       return;
     }
-    removeHeaders.add(name);
+    removeHeaders.add(name.toLowerCase(Locale.ROOT));
   }
 
   public void appendHeaders(Map<String, String> headers) {
@@ -622,15 +631,19 @@ public class RequestContext {
     if (name == null || name.isEmpty() || value == null) {
       return;
     }
-    addHeaders.add(
-        HeaderValueOption.newBuilder()
-            .setHeader(
-                build.buf.gen.envoy.config.core.v3.HeaderValue.newBuilder()
-                    .setKey(name)
-                    .setValue(value)
-                    .build())
-            .setAppendAction(action)
-            .build());
+    addHeaders.add(buildHeaderValueOption(name, value, action));
+  }
+
+  private HeaderValueOption buildHeaderValueOption(
+      String name, String value, HeaderValueOption.HeaderAppendAction action) {
+    return HeaderValueOption.newBuilder()
+        .setHeader(
+            HeaderValue.newBuilder()
+                .setKey(name.toLowerCase(Locale.ROOT))
+                .setRawValue(ByteString.copyFromUtf8(value))
+                .build())
+        .setAppendAction(action)
+        .build();
   }
 
   protected void updateHeaders(
@@ -655,40 +668,52 @@ public class RequestContext {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
   }
 
+  private boolean isHeadersPhase() {
+    return phase == RequestCase.REQUEST_HEADERS || phase == RequestCase.RESPONSE_HEADERS;
+  }
+
   /**
    * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
-   * content-length to match. An empty replacement is a no-op. Under STREAMED body mode, use {@link
-   * #replaceBodyChunk(byte[])} instead, which is chunk semantics.
+   * content-length during header phases. A {@code null} body is a no-op; an empty body delegates to
+   * {@link #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(byte[])} instead,
+   * which is chunk semantics.
    */
   public void replaceBody(byte[] body) {
-    if (body == null || body.length == 0) {
-      // an empty replace is a no-op
+    if (body == null) {
+      return;
+    }
+    if (body.length == 0) {
+      clearBody();
       return;
     }
     bodyMutation = BodyMutation.newBuilder().setBody(ByteString.copyFrom(body)).build();
-    overwriteHeader("content-length", String.valueOf(body.length));
+    if (isHeadersPhase()) {
+      overwriteHeader("content-length", String.valueOf(body.length));
+    }
   }
 
   /**
    * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
-   * content-length to match. An empty replacement is a no-op. Under STREAMED body mode, use {@link
-   * #replaceBodyChunk(String)} instead, which is chunk semantics.
+   * content-length during header phases. A {@code null} body is a no-op; an empty body delegates to
+   * {@link #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(String)} instead,
+   * which is chunk semantics.
    */
   public void replaceBody(String body) {
-    if (body == null || body.isEmpty()) {
-      // an empty replace is a no-op
+    if (body == null) {
       return;
     }
-    replaceBody(body.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+    replaceBody(body.getBytes(StandardCharsets.UTF_8));
   }
 
   /**
-   * Clears the whole body and zeroes the content-length (BUFFERED semantics). Under STREAMED body
-   * mode, use {@link #clearBodyChunk()} instead, which clears a single chunk.
+   * Clears the whole body and zeroes the content-length during header phases (BUFFERED semantics).
+   * Under STREAMED body mode, use {@link #clearBodyChunk()} instead, which clears a single chunk.
    */
   public void clearBody() {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
-    overwriteHeader("content-length", "0");
+    if (isHeadersPhase()) {
+      overwriteHeader("content-length", "0");
+    }
   }
 
   /** Signals that the route cache should be cleared before the next upstream request. */

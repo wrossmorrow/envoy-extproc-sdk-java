@@ -25,6 +25,7 @@ class ExternalProcessorErrorFlowTest {
     final List<ProcessingResponse> sent = new ArrayList<ProcessingResponse>();
     final List<Throwable> errors = new ArrayList<Throwable>();
     boolean completed = false;
+    final AtomicInteger completedCount = new AtomicInteger();
 
     @Override
     public void onNext(ProcessingResponse value) {
@@ -39,6 +40,7 @@ class ExternalProcessorErrorFlowTest {
     @Override
     public void onCompleted() {
       completed = true;
+      completedCount.incrementAndGet();
     }
   }
 
@@ -191,5 +193,44 @@ class ExternalProcessorErrorFlowTest {
             ? ((StatusRuntimeException) processor.lastError).getStatus().getCode()
             : -1);
     assertTrue(responseObserver.errors.isEmpty());
+  }
+
+  @Test
+  void processingCompleteInOnNextDoesNotDoubleCloseResponseObserver() {
+    RequestProcessor cancellingProcessor =
+        new ErroringRequestProcessor(new ProcessingOptions()) {
+          @Override
+          public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.cancelRequest(403, null, "forbidden");
+          }
+        };
+    ExternalProcessor externalProcessor = new ExternalProcessor(cancellingProcessor, null);
+    FakeResponseObserver responseObserver = new FakeResponseObserver();
+    StreamObserver<ProcessingRequest> serverObserver = externalProcessor.process(responseObserver);
+
+    serverObserver.onNext(requestHeadersRequest());
+    // Subsequent inbound callbacks must not call onCompleted() or onError() a second time.
+    serverObserver.onCompleted();
+    serverObserver.onError(new RuntimeException("late error"));
+
+    assertEquals(1, responseObserver.sent.size());
+    assertEquals(1, responseObserver.completedCount.get());
+    assertTrue(responseObserver.errors.isEmpty());
+  }
+
+  @Test
+  void abortOnProcessorFailureDoesNotDoubleCloseOnSubsequentCompleted() {
+    ProcessingOptions options = new ProcessingOptions();
+    options.abortOnProcessorFailure = true;
+    ErroringRequestProcessor processor = new ErroringRequestProcessor(options);
+    ExternalProcessor externalProcessor = new ExternalProcessor(processor, null);
+    FakeResponseObserver responseObserver = new FakeResponseObserver();
+    StreamObserver<ProcessingRequest> serverObserver = externalProcessor.process(responseObserver);
+
+    serverObserver.onNext(requestHeadersRequest());
+    serverObserver.onCompleted();
+
+    assertEquals(1, responseObserver.errors.size());
+    assertEquals(0, responseObserver.completedCount.get());
   }
 }

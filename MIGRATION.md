@@ -57,14 +57,25 @@ Behavior changes that come with it:
   value, e.g. `Set-Cookie`).
 - **Raw values** are retained alongside decoded values via
   `AllHeaders.rawValues(name)` for values that are not valid UTF-8.
+- **Request ID preservation**: `x-request-id` (or the configured
+  `requestIdHeaderName`) is now retained in `getRequestHeaders()` and
+  `getAllRequestHeaders()` in addition to populating `getRequestId()`.
+- **Outbound header mutations**: All header mutations (`addHeader`,
+  `appendHeader`, `overwriteHeader`, `cancelRequest`) emit Envoy's `raw_value`
+  (UTF-8 bytes) rather than the deprecated string `value` field, and lowercase
+  header names (`Locale.ROOT`) for both setting and `removeHeader`. Empty
+  `HeaderMutation` / `BodyMutation` submessages are omitted when no mutations
+  are queued. Tests or clients inspecting `ProcessingResponse` protos directly
+  should read `getRawValue()`.
 
 Accessors on `AllHeaders`: `get(name)`, `values(name)`, `rawValues(name)`, `has(name)`,
 `splitList(name)`, `add(name, value)`, `set(name, value)`, `remove(name)`, `size()`, and
 `clear()`.
 
-The `x-extproc-duration-ns` duration header reported on end-of-stream responses
-is a single value, but consumers reading it should accept either the value or the
-raw value field.
+The `x-extproc-duration-ns` duration header is emitted using `raw_value`, and is
+only injected on header and trailer phases (never on `REQUEST_BODY` /
+`RESPONSE_BODY`). Consumers reading it should accept `raw_value` (with a
+fallback to `value`).
 
 ### `RequestProcessor` gained `errorHandler` and `close`
 
@@ -101,22 +112,38 @@ the retained legacy fields).
 ### Body mutation split from `Content-Length`
 
 `replaceBody` / `clearBody` are whole-body operations (BUFFERED semantics: one
-message is the whole body; the `content-length` header is updated to match; an
-empty replacement is a no-op). `replaceBodyChunk` / `clearBodyChunk` are
-chunk-level operations (STREAMED semantics: they do not touch `content-length`).
-The `content-length` header name is now lower-cased. If your filter config uses
+message is the whole body). Passing `null` to `replaceBody` is a no-op, while
+passing an empty `byte[0]` or `""` delegates to `clearBody()`. Both methods
+update the lower-cased `content-length` header **only during header phases**
+(`REQUEST_HEADERS` / `RESPONSE_HEADERS`), never during `REQUEST_BODY` /
+`RESPONSE_BODY` where headers may already have been sent or chunked.
+`replaceBodyChunk` / `clearBodyChunk` are chunk-level operations (STREAMED
+semantics: they never touch `content-length`). If your filter config uses
 `request_body_mode: BUFFERED` / `response_body_mode: BUFFERED` — as the examples
 and the test harness do — prefer `replaceBody` / `clearBody`; under STREAMED, use
 the chunk methods.
+
+### Immediate responses (`cancelRequest`)
+
+`cancelRequest(status, headers, body)` now isolates `ImmediateResponse.headers`
+to only the `headers` map passed to `cancelRequest` rather than inheriting prior
+`addHeader` / `removeHeader` mutations queued earlier in the same phase. It also
+defaults `status <= 0` to `400` (`BadRequest`) and falls back to `500`
+(`InternalServerError`) for unmapped Envoy `StatusCode` numbers instead of
+throwing a `NullPointerException`.
 
 ### Duration accumulation
 
 The accumulated external-processing duration is now actually accumulated across
 phases (previously the running sum was discarded, so `getDuration()` and the
 `x-extproc-duration-ns` header reported no duration). The total is reported on
-end-of-stream responses when `UpdateDurationHeader` is set, and exposed via the
-new `extproc_external_processing_seconds` / `extproc_stream_duration_seconds`
-metrics and histograms.
+end-of-stream header and trailer responses (`RESPONSE_HEADERS` with
+`end_of_stream` or `RESPONSE_TRAILERS`, never on body phases) when
+`UpdateDurationHeader` is set, and exposed via the new
+`extproc_external_processing_seconds` / `extproc_stream_duration_seconds`
+metrics and histograms. Similarly, `upstreamDurationHeader` and
+`downstreamDurationHeader` only inject `x-extproc-duration-ns` on header and
+trailer phases.
 
 ### Shutdown behavior
 
