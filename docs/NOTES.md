@@ -142,3 +142,17 @@ Full Go/Rust set (Prometheus simpleclient; private registry; served on metrics H
 - Gradle wrapper pinned to `gradle-8.0.2`; `./gradlew compileJava` **failed** in this sandbox because the wrapper distribution could not be downloaded (offline) — nothing in the repo was compiled during this comparison session.
 - Dependencies of note (existing): grpc `1.57.2`, protobuf `3.22.3`, buf-generated envoy code `1.57.2.1.20230817201313...`, grpc-services/health/reflection. Future alignment may bump these.
 - Adding Prometheus (`io.prometheus:prometheus`, `prometheus-simpleclient-httpserver`) and Jackson (JSON/YAML option loading) will be *injected* on top of the existing toolchain — must be deliberate and verified later via a working Gradle build.
+
+---
+
+## 7. Go PR #24 replication status (2026-11-21)
+
+Go PR [#24](https://github.com/wrossmorrow/envoy-extproc-sdk-go/pull/24) ("fix: SDK gaps surfaced from conformance testing") landed two SDK-side fixes that the Java port has now mirrored:
+
+1. **Header append actions** (`HeaderValueOption.Append`, `envoyproxy/envoy#48886`): `RequestContext.buildHeaderValueOption` now sets `Append = true` on the `HeaderValueOption` for `APPEND_IF_EXISTS_OR_ADD`, so `AppendHeader`/`AppendHeaders` append rather than overwrite, while `AddHeader`/`AddHeaders` (`ADD_IF_ABSENT`) and `OverwriteHeader`/`OverwriteHeaders` (`OVERWRITE_IF_EXISTS`/`OVERWRITE_IF_EXISTS_OR_ADD`) keep their intended semantics.
+
+2. **Phase header-key mutation resolution** (`envoyproxy/envoy#48886`): the context now tracks lower-cased phase header key sets (`phaseHeaderKeys`, with `reqHeaderKeys`/`respHeaderKeys` resolved post-mutation), and resolves pending header mutations through them, filtering no-op `ADD_IF_ABSENT` and `OVERWRITE_IF_EXISTS` entries and carrying the resolved key set into body phases.
+
+**Replicated:** the `ObservabilityMode` half of the PR (`ProcessingRequest.observability_mode` → suppress `ProcessingResponse`, synthetic header updates, empty-response accounting) has now been wired into the Java port. The buf-generated envoy artifact was bumped from `24.0.0.1.20230817201313.e75e636e2bd4` to `36.2.0.1.20261028205545.5c0f5fe1eee2` (which exposes `ProcessingRequest.getObservabilityMode()`, `setObservabilityMode`, and the `OBSERVABILITY_MODE_FIELD_NUMBER`), and `ExternalProcessor` now reads the flag per phase, mirrors the `!obs` guards on the synthetic `x-extproc-names` / `x-extproc-duration-ns` updates, suppresses the resolved `ProcessingResponse`, and skips the empty-continue synthesis on phase errors. New coverage lives in `ExternalProcessorObservabilityTest` (response suppression across the full phase sequence, no-empty-continue on error without abort, error still aborts with `AbortOnProcessorFailure`).
+
+**Maintainer note:** whether/how the `build.buf.gen:envoyproxy_envoy_protocolbuffers_java` dependency bump should be accepted is still pending maintainer approval; the runtime grpc/validate artifacts were left untouched in this change.

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
+import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
@@ -12,8 +13,10 @@ import com.google.protobuf.ByteString;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -377,7 +380,7 @@ class ContextTest {
     ctx.cancelRequest(0, cancelHeaders, "bad");
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
     assertEquals(StatusCode.BadRequest, response.getImmediateResponse().getStatus().getCode());
-    assertEquals("bad", response.getImmediateResponse().getBody());
+    assertEquals("bad", response.getImmediateResponse().getBody().toStringUtf8());
     HeaderMutation hm = response.getImmediateResponse().getHeaders();
     assertEquals(1, hm.getSetHeadersCount());
     assertEquals(0, hm.getRemoveHeadersCount());
@@ -449,7 +452,7 @@ class ContextTest {
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
     assertNotNull(response.getImmediateResponse());
     assertEquals(response.getImmediateResponse().getStatus().getCodeValue(), 200);
-    assertEquals(response.getImmediateResponse().getBody(), "OK");
+    assertEquals(response.getImmediateResponse().getBody().toStringUtf8(), "OK");
   }
 
   @Test
@@ -530,5 +533,116 @@ class ContextTest {
     ctx.setValue("routed", Boolean.FALSE);
     ctx.reset(RequestCase.REQUEST_BODY);
     assertEquals(Boolean.FALSE, ctx.getValue("routed", Boolean.class));
+  }
+
+  @Test
+  void appendFlagSetForAppendIfExistsOrAddOnly() {
+    RequestContext ctx = new RequestContext();
+    ctx.updateHeader(
+        "x-append", "second", HeaderValueOption.HeaderAppendAction.APPEND_IF_EXISTS_OR_ADD);
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation hm = response.getRequestHeaders().getResponse().getHeaderMutation();
+    assertEquals(1, hm.getSetHeadersCount());
+    HeaderValueOption ho = hm.getSetHeaders(0);
+    assertTrue(ho.hasAppend());
+    assertTrue(ho.getAppend().getValue());
+
+    RequestContext ctxAdd = new RequestContext();
+    ctxAdd.updateHeader("x-add", "first", HeaderValueOption.HeaderAppendAction.ADD_IF_ABSENT);
+    ProcessingResponse addResponse = ctxAdd.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation addHm = addResponse.getRequestHeaders().getResponse().getHeaderMutation();
+    assertEquals(1, addHm.getSetHeadersCount());
+    assertFalse(addHm.getSetHeaders(0).hasAppend());
+
+    RequestContext ctxOverwrite = new RequestContext();
+    ctxOverwrite.updateHeader(
+        "x-overwrite", "first", HeaderValueOption.HeaderAppendAction.OVERWRITE_IF_EXISTS);
+    ProcessingResponse overwriteResponse = ctxOverwrite.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation overwriteHm =
+        overwriteResponse.getRequestHeaders().getResponse().getHeaderMutation();
+    assertEquals(1, overwriteHm.getSetHeadersCount());
+    assertFalse(overwriteHm.getSetHeaders(0).hasAppend());
+  }
+
+  @Test
+  void resolveHeaderMutationEnforcesAddIfAbsentAndOverwriteIfExists() {
+    RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    ctx.initializeRequest(
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey(":authority").setValue("example.com"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-existing").setValue("keep"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-remove-then-add").setValue("old"))
+            .build());
+    ctx.reqHeaderKeys = ctx.headerKeySet(ctx.allRequestHeaders);
+    ctx.phaseHeaderKeys = ctx.reqHeaderKeys;
+
+    ctx.addHeader("x-existing", "ignored");
+    ctx.addHeader("x-absent", "first");
+    ctx.addHeader("x-absent", "second");
+    ctx.updateHeader("x-missing", "nope", HeaderValueOption.HeaderAppendAction.OVERWRITE_IF_EXISTS);
+    ctx.updateHeader(
+        "x-existing", "replaced", HeaderValueOption.HeaderAppendAction.OVERWRITE_IF_EXISTS);
+    ctx.removeHeader("x-remove-then-add");
+    ctx.addHeader("x-remove-then-add", "fresh");
+
+    ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation hm = response.getRequestHeaders().getResponse().getHeaderMutation();
+    List<String> got = extractSetHeaderKeys(hm);
+    List<String> want = new ArrayList<String>();
+    want.add("x-absent=first:ADD_IF_ABSENT");
+    want.add("x-existing=replaced:OVERWRITE_IF_EXISTS");
+    want.add("x-remove-then-add=fresh:ADD_IF_ABSENT");
+    assertEquals(want, got);
+
+    ProcessingResponse responseAgain = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertEquals(
+        want,
+        extractSetHeaderKeys(responseAgain.getRequestHeaders().getResponse().getHeaderMutation()));
+  }
+
+  @Test
+  void resolvedHeaderMutationsCarryIntoBodyPhase() {
+    RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    ctx.initializeRequest(
+        HeaderMap.newBuilder()
+            .addHeaders(HeaderValue.newBuilder().setKey("x-client").setValue("orig"))
+            .addHeaders(HeaderValue.newBuilder().setKey("x-existing").setValue("keep"))
+            .build());
+    ctx.reqHeaderKeys = ctx.headerKeySet(ctx.allRequestHeaders);
+    ctx.phaseHeaderKeys = ctx.reqHeaderKeys;
+
+    ctx.addHeader("x-existing", "ignored");
+    ctx.addHeader("x-added-in-hdrs", "v1");
+
+    ProcessingResponse headersResponse = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    HeaderMutation headersMutation =
+        headersResponse.getRequestHeaders().getResponse().getHeaderMutation();
+    assertEquals(1, headersMutation.getSetHeadersCount());
+    assertEquals("x-added-in-hdrs", headersMutation.getSetHeaders(0).getHeader().getKey());
+
+    ctx.reset(RequestCase.REQUEST_BODY);
+    ctx.phaseHeaderKeys = ctx.reqHeaderKeys;
+    ctx.addHeader("x-client", "spoof");
+    ctx.addHeader("x-added-in-body", "v3");
+
+    ProcessingResponse bodyResponse = ctx.getResponse(RequestCase.REQUEST_BODY);
+    HeaderMutation bodyMutation = bodyResponse.getRequestBody().getResponse().getHeaderMutation();
+    assertEquals(1, bodyMutation.getSetHeadersCount());
+    assertEquals("x-added-in-body", bodyMutation.getSetHeaders(0).getHeader().getKey());
+  }
+
+  private static List<String> extractSetHeaderKeys(HeaderMutation hm) {
+    List<String> out = new ArrayList<String>();
+    for (HeaderValueOption ho : hm.getSetHeadersList()) {
+      out.add(
+          ho.getHeader().getKey()
+              + "="
+              + ho.getHeader().getRawValue().toStringUtf8()
+              + ":"
+              + ho.getAppendAction().toString());
+    }
+    return out;
   }
 }

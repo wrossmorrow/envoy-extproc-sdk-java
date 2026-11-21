@@ -90,6 +90,7 @@ The `RequestContext` is initialized with some request data when request headers 
 * the request processing stream start time `started`
 * an accumulator `duration` _for the time spent in external processing_
 * a flag-method `streamComplete` within header, body, and trailer phases to know when phase data is complete
+* a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages)
 
 This context is carried through every request phase, and passed to the interface methods. In particular, your implementation can store data in memory related to specific requests keyed on the request ID or via another strategy of your choosing. You can supply your own ID, which can be stored in the context, if that suits your needs better, using `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 

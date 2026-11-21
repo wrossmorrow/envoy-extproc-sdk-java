@@ -35,7 +35,7 @@ dependencies {
   implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
 
   implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.57.2.1.20230817201313.e75e636e2bd4'
-  implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:24.0.0.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:36.2.0.1.20261028205545.5c0f5fe1eee2'
   implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
 
   runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
