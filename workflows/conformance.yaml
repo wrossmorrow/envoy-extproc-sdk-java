@@ -1,0 +1,104 @@
+name: Envoy Conformance
+
+on:
+  workflow_dispatch:
+    inputs:
+      envoy_version:
+        description: 'Envoy version tag to test (empty = default from conformance/envoy-versions.json)'
+        required: false
+        default: ''
+      test_run:
+        description: 'Go test filter for the conformance suite'
+        required: false
+        default: ''
+  schedule:
+    # weekly, Monday 09:00 UTC
+    - cron: '0 9 * * 1'
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'conformance/**'
+      - 'src/test/java/com/github/wrossmorrow/extproc/conformance/**'
+      - 'workflows/conformance.yaml'
+
+env:
+  CONFORMANCE_REQUIRE_ENVOY: '1'
+
+jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+      matrix_json: ${{ steps.matrix.outputs.matrix_json }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Resolve Envoy version matrix
+        id: matrix
+        run: |
+          default_version=$(jq -r '.default' conformance/envoy-versions.json)
+          supported=$(jq -r '.supported[]' conformance/envoy-versions.json)
+          canary=$(jq -r '.canary[]' conformance/envoy-versions.json)
+          matrix_json=$(jq -n \
+            --arg default "$default_version" \
+            --argjson supported "$supported" \
+            --argjson canary "$canary" \
+            '{default: $default, supported: $supported, canary: $canary}')
+          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+          echo "matrix_json=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  conformance:
+    needs: resolve-matrix
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        envoy: ${{ fromJson(steps.matrix.outputs.matrix_json).supported }}
+        include:
+          - envoy: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - name: Pull Envoy image
+        run: docker pull envoyproxy/envoy:${{ matrix.envoy }}
+      - name: Run conformance tests
+        run: |
+          CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${{ matrix.envoy }}" \
+            ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*" -v \
+            > "results-${{ matrix.envoy }}.log"
+      - name: Upload conformance results
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-results-${{ matrix.envoy }}
+          path: results-${{ matrix.envoy }}.log
+
+  report:
+    needs: [resolve-matrix, conformance]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: conformance-results-*
+          merge-multiple: true
+          path: conformance/results
+      - name: Generate conformance matrix
+        run: ./gradlew conformanceReport
+      - name: Upload conformance summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: conformance-summary
+          path: |
+            /tmp/conformance-matrix.md
+            /tmp/conformance-summary.json
+      - name: Write step summary
+        run: cat /tmp/conformance-matrix.md >> "$GITHUB_STEP_SUMMARY"

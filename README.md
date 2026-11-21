@@ -271,3 +271,23 @@ The `RouterRequestProcessor` routes a request to an upstream based on a request 
 ### Testing
 
 The `TestingRequestProcessor` is the processor used by the testing harness: it applies a JSON action body across the phases of an exchange (append/add/overwrite/remove headers, clear/replace bodies, cancel), and supports an upstream override via the `x-route-to-upstream` header.
+
+## Conformance
+
+This repository ships an [Envoy conformance harness](conformance) that exercises the SDK against live Envoy proxies across multiple Envoy versions, and tracks `ext_proc` v3 feature coverage.
+
+- Versioned target matrix: [conformance/envoy-versions.json](conformance/envoy-versions.json) (default `v1.40-latest`, supported `v1.37` – `v1.40`, plus `dev` canary).
+- Feature coverage plan & matrix: [CONFORMANCE.md](CONFORMANCE.md), [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md), [conformance/features.yaml](conformance/features.yaml).
+- Purposeful multi-version runs: [`.github/workflows/conformance.yaml`](workflows/conformance.yaml) (manual, weekly schedule, release tags, conformance-path changes).
+
+Quick local entry points:
+
+```sh
+just conformance            # fast in-JVM harness tests (no envoy binary required)
+just conformance-version v1.40-latest
+just conformance-matrix
+just conformance-report
+just sync-envoy-versions
+```
+
+See [CONFORMANCE.md](CONFORMANCE.md) for the version baseline, the generated conformance matrix, and how to run verification.
