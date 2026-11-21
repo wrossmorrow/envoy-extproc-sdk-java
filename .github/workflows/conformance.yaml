@@ -54,7 +54,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        envoy: ${{ fromJson(steps.matrix.outputs.matrix_json).supported }}
+        envoy: ${{ fromJson(needs.resolve-matrix.outputs.matrix_json).supported }}
         include:
           - envoy: dev
     steps:
