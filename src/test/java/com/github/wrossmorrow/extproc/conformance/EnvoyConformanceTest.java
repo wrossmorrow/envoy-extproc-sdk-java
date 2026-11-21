@@ -13,7 +13,6 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeAll;
@@ -150,26 +149,25 @@ public class EnvoyConformanceTest {
   @Test
   @EnabledIfEnvironmentVariable(named = "CONFORMANCE_REQUIRE_ENVOY", matches = "1")
   void envoyGatedConformanceExchange() throws Exception {
-    EnvoyRunner runner = EnvoyRunner.start(new EnvoyRunner.EnvoyConfig());
+    UpstreamServer upstream = UpstreamServer.start("primary");
+    EnvoyRunner.EnvoyConfig config = new EnvoyRunner.EnvoyConfig();
+    config.primaryUpstreamPort = upstream.port();
+    config.secondaryUpstreamPort = upstream.port();
+    config.extProcPort = 50052;
+    config.abortExtProcPort = 50053;
+    config.secondaryExtProcPort = 50054;
+    EnvoyRunner runner = EnvoyRunner.start(config);
     try {
-      ConformanceScenarios.ScenarioContext ctx =
-          new ConformanceScenarios.ScenarioContext(
-              runner,
-              ConformanceProcessor.newDefault("conformance"),
-              null,
-              new EnvoyHttpClient(runner.proxyUrl(), 5000));
-      List<ConformanceScenarios.ScenarioResult> results =
-          ConformanceScenarios.runAll(ctx, ConformanceScenarios.scenarioNames());
-      for (ConformanceScenarios.ScenarioResult result : results) {
-        System.out.println(
-            "conformance scenario "
-                + result.scenario
-                + " => "
-                + result.outcome
-                + " "
-                + result.detail);
-      }
+      EnvoyHttpClient client = new EnvoyHttpClient(runner.proxyUrl(), 5000);
+      Map<String, String> headers = new HashMap<String, String>();
+      headers.put(ConformanceProcessor.CASE_HEADER, "headers_mutations_http1");
+      EnvoyHttpClient.Response response = client.send("POST", "/v1/foo", headers, "hello");
+      assertNotNull(response);
+      assertEquals(200, response.status);
+      runner.assertNoProtocolErrors();
+      System.out.println("envoy conformance exchange status=" + response.status);
     } finally {
+      upstream.close();
       runner.close();
     }
   }
