@@ -185,6 +185,6 @@ class TestingRequestProcessorIntegrationTest {
     ProcessingResponse response = responses.get(1);
     assertNotNull(response.getImmediateResponse());
     assertEquals(409, response.getImmediateResponse().getStatus().getCodeValue());
-    assertEquals("boom", response.getImmediateResponse().getBody());
+    assertEquals("boom", response.getImmediateResponse().getBody().toStringUtf8());
   }
 }

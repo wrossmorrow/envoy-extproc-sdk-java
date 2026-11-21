@@ -380,7 +380,7 @@ class ContextTest {
     ctx.cancelRequest(0, cancelHeaders, "bad");
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
     assertEquals(StatusCode.BadRequest, response.getImmediateResponse().getStatus().getCode());
-    assertEquals("bad", response.getImmediateResponse().getBody());
+    assertEquals("bad", response.getImmediateResponse().getBody().toStringUtf8());
     HeaderMutation hm = response.getImmediateResponse().getHeaders();
     assertEquals(1, hm.getSetHeadersCount());
     assertEquals(0, hm.getRemoveHeadersCount());
@@ -452,7 +452,7 @@ class ContextTest {
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
     assertNotNull(response.getImmediateResponse());
     assertEquals(response.getImmediateResponse().getStatus().getCodeValue(), 200);
-    assertEquals(response.getImmediateResponse().getBody(), "OK");
+    assertEquals(response.getImmediateResponse().getBody().toStringUtf8(), "OK");
   }
 
   @Test

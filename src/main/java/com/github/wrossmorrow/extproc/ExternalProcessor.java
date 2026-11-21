@@ -110,9 +110,15 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
           return;
         }
         try {
-          responseObserver.onNext(processPhase(request, ctx));
-          if (ctx.isProcessingComplete() && responseClosed.compareAndSet(false, true)) {
-            responseObserver.onCompleted();
+          ProcessingResponse response = processPhase(request, ctx);
+          // observability mode suppresses the ProcessingResponse entirely; the phase
+          // callbacks, metrics and the abort policy still run inside processPhase /
+          // handlePhaseError
+          if (response != null) {
+            responseObserver.onNext(response);
+            if (ctx.isProcessingComplete() && responseClosed.compareAndSet(false, true)) {
+              responseObserver.onCompleted();
+            }
           }
         } catch (Throwable t) {
           errored.set(true);
@@ -197,8 +203,10 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         }
         // without aborting, send an empty continue response and keep the stream alive
         if (!responseClosed.get()) {
-          responseObserver.onNext(emptyContinueResponse(ctx));
-          metrics.totalEmptyResponses.inc();
+          if (!ctx.isObservabilityMode()) {
+            responseObserver.onNext(emptyContinueResponse(ctx));
+            metrics.totalEmptyResponses.inc();
+          }
         }
       }
 
@@ -274,6 +282,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
     final RequestCase phase = request.getRequestCase();
     final Instant phaseStarted = Instant.now();
+    final boolean obs = request.getObservabilityMode();
 
     logger.fine("" + procname + " Processing " + phase.toString());
     if (options.logPhases) {
@@ -281,6 +290,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     }
 
     ctx.reset(phase);
+    ctx.observabilityMode = obs;
     switch (phase) {
       case REQUEST_HEADERS:
         HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();
@@ -313,7 +323,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         ctx.phaseHeaderKeys = ctx.respHeaderKeys;
         ctx.endOfStream = request.getResponseHeaders().getEndOfStream();
         processor.processResponseHeaders(ctx, responseHeaders);
-        if (options.updateExtProcHeader) {
+        if (!obs && options.updateExtProcHeader) {
           ctx.appendHeader("x-extproc-names", procname);
         }
         recordPhaseMetrics(phase, 0, 0);
@@ -350,7 +360,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         break;
       case RESPONSE_HEADERS:
       case RESPONSE_TRAILERS:
-        if (options.updateDurationHeader) {
+        if (!obs && options.updateDurationHeader) {
           // the external processing duration is reported on end-of-stream responses only
           if (ctx.streamComplete()) {
             ctx.appendHeader(X_EXTPROC_DURATION_NS, String.valueOf(ctx.duration.toNanos()));
@@ -363,6 +373,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         break;
       default:
         break;
+    }
+
+    if (obs) {
+      // observability mode: the phase callbacks, metrics and abort policy have run, but no
+      // ProcessingResponse is sent back to envoy
+      return null;
     }
 
     return ctx.getResponse(phase);

@@ -117,6 +117,7 @@ public class RequestContext {
   protected boolean replace;
   protected boolean cancelled;
   protected boolean clearRouteCache;
+  protected boolean observabilityMode;
   BodyMutation bodyMutation;
   ImmediateResponse immediateResponse;
 
@@ -160,6 +161,7 @@ public class RequestContext {
     // phase header state is re-seeded per phase by the server; the resolved
     // (post-mutation) request/response key sets persist across phase carries
     phaseHeaderKeys = null;
+    observabilityMode = false;
   }
 
   /** context initialization routine */
@@ -453,6 +455,11 @@ public class RequestContext {
     return endOfStream;
   }
 
+  /** Whether the current processing phase runs with envoy's observability_mode enabled. */
+  public boolean isObservabilityMode() {
+    return observabilityMode;
+  }
+
   public String getProcessorId() {
     return processorId;
   }
@@ -512,7 +519,7 @@ public class RequestContext {
     ImmediateResponse.Builder builder =
         ImmediateResponse.newBuilder()
             .setStatus(HttpStatus.newBuilder().setCode(statusCode).build())
-            .setBody(body == null ? "" : body);
+            .setBody(body == null ? ByteString.EMPTY : ByteString.copyFromUtf8(body));
     if (headers != null && !headers.isEmpty()) {
       HeaderMutation.Builder headerMutation = HeaderMutation.newBuilder();
       for (Map.Entry<String, String> entry : headers.entrySet()) {
