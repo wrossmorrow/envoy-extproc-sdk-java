@@ -208,11 +208,9 @@ public class ConformanceReport {
       String docPath, SummaryReport report, List<String> versions) throws IOException {
     String markdown = renderMarkdown(report);
     String content = new String(Files.readAllBytes(Paths.get(docPath)), StandardCharsets.UTF_8);
-    String markerStart = "<!-- " + CONFORMANCE_MATRIX_START_MARKER + " -->";
-    String markerEnd = "<!-- " + CONFORMANCE_MATRIX_END_MARKER + " -->";
-    String startMarker = "<!-- BEGIN GENERATED CONFORMANCE MATRIX -->";
-    String endMarker = "<!-- END GENERATED CONFORMANCE MATRIX -->";
-    String rebuilt = content.replace(startMarker, markerStart).replace(endMarker, markerEnd);
+    String markerStart = CONFORMANCE_MATRIX_START_MARKER;
+    String markerEnd = CONFORMANCE_MATRIX_END_MARKER;
+    String rebuilt = content;
     int startIndex = rebuilt.indexOf(markerStart);
     int endIndex = rebuilt.indexOf(markerEnd);
     StringBuilder updated = new StringBuilder();
@@ -224,9 +222,7 @@ public class ConformanceReport {
       updated.append("\n");
     } else {
       updated.append(rebuilt.substring(0, startIndex));
-      updated.append("\n");
-      updated.append(
-          markdown.substring(markerStart.length(), markdown.length() - markerEnd.length()));
+      updated.append(markdown);
       updated.append(rebuilt.substring(endIndex + markerEnd.length()));
     }
     Files.write(Paths.get(docPath), updated.toString().getBytes(StandardCharsets.UTF_8));
