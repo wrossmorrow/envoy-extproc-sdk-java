@@ -431,6 +431,43 @@ public class ConformanceScenarios {
           }
         });
     SCENARIOS.put(
+        "http1_trailers_roundtrip",
+        new Scenario() {
+          @Override
+          public String name() {
+            return "http1_trailers_roundtrip";
+          }
+
+          @Override
+          public Outcome run(ScenarioContext ctx) {
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "http1_trailers_roundtrip",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void requestTrailers(RequestContext c, Map<String, String> trailers) {
+                    c.overwriteHeader("x-assert-trailer", "mutated");
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(ConformanceProcessor.CASE_HEADER, "http1_trailers_roundtrip");
+            Map<String, String> trailers = new java.util.HashMap<String, String>();
+            processor.processRequestTrailers(phaseContext, trailers);
+            ProcessingResponse processingResponse =
+                phaseContext.getResponse(RequestCase.REQUEST_TRAILERS);
+            boolean ok = processingResponse.getRequestTrailers().hasHeaderMutation();
+            if (ok) {
+              for (HeaderValueOption setHeader :
+                  processingResponse.getRequestTrailers().getHeaderMutation().getSetHeadersList()) {
+                ok =
+                    setHeader.getHeader().getKey().equals("x-assert-trailer")
+                        && setHeader.getHeader().getRawValue().toStringUtf8().equals("mutated");
+              }
+            }
+            return ok ? Outcome.PASS : Outcome.FAIL;
+          }
+        });
+    SCENARIOS.put(
         "h2c_trailers_roundtrip",
         new Scenario() {
           @Override

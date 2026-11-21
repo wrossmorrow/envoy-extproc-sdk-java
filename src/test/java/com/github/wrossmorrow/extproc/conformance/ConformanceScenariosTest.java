@@ -83,7 +83,8 @@ public class ConformanceScenariosTest {
             "skip_request_headers_response_mutation",
             "streamed_body_chunks",
             "http1_chunked_response_buffered_replace_and_clear",
-            "streamed_request_and_response_clear_chunk");
+            "streamed_request_and_response_clear_chunk",
+            "http1_trailers_roundtrip");
     List<ConformanceScenarios.ScenarioResult> results =
         ConformanceScenarios.runAll(ctx, implemented);
     assertEquals(implemented.size(), results.size());
