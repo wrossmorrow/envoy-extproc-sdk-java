@@ -457,6 +457,59 @@ public class ConformanceScenarios {
           }
         });
     SCENARIOS.put(
+        "streamed_request_and_response_clear_chunk",
+        new Scenario() {
+          @Override
+          public String name() {
+            return "streamed_request_and_response_clear_chunk";
+          }
+
+          @Override
+          public Outcome run(ScenarioContext ctx) {
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "streamed_request_and_response_clear_chunk",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void requestBody(RequestContext c, String body) {
+                    c.clearBodyChunk();
+                  }
+
+                  @Override
+                  public void responseBody(RequestContext c, String body) {
+                    c.clearBody();
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(
+                ConformanceProcessor.CASE_HEADER, "streamed_request_and_response_clear_chunk");
+            processor.processRequestBody(phaseContext, "chunk");
+            ProcessingResponse requestProcessingResponse =
+                phaseContext.getResponse(RequestCase.REQUEST_BODY);
+            CommonResponse requestCommon = requestProcessingResponse.getRequestBody().getResponse();
+            boolean ok =
+                requestCommon != null
+                    && requestCommon.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && requestCommon.getBodyMutation().hasClearBody();
+            if (!ok) {
+              return Outcome.FAIL;
+            }
+            RequestContext responsePhaseContext = new RequestContext();
+            responsePhaseContext.setValue(
+                ConformanceProcessor.CASE_HEADER, "streamed_request_and_response_clear_chunk");
+            processor.processResponseBody(responsePhaseContext, "hello");
+            ProcessingResponse responseProcessingResponse =
+                responsePhaseContext.getResponse(RequestCase.RESPONSE_BODY);
+            CommonResponse responseCommon =
+                responseProcessingResponse.getResponseBody().getResponse();
+            return responseCommon != null
+                    && responseCommon.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && responseCommon.getBodyMutation().hasClearBody()
+                ? Outcome.PASS
+                : Outcome.FAIL;
+          }
+        });
+    SCENARIOS.put(
         "immediate_response_all_phases_and_trailers_fallback",
         new Scenario() {
           @Override
