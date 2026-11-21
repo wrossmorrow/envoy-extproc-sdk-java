@@ -285,6 +285,8 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_HEADERS:
         HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();
         Map<String, String> requestHeaders = ctx.initializeRequest(protoRequestHeaders);
+        ctx.reqHeaderKeys = ctx.headerKeySet(ctx.allRequestHeaders);
+        ctx.phaseHeaderKeys = ctx.reqHeaderKeys;
         ctx.endOfStream = request.getRequestHeaders().getEndOfStream();
         processor.processRequestHeaders(ctx, requestHeaders);
         recordPhaseMetrics(phase, 0, 0);
@@ -292,6 +294,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case REQUEST_BODY:
         String requestBodyString = request.getRequestBody().getBody().toStringUtf8();
         ctx.endOfStream = request.getRequestBody().getEndOfStream();
+        ctx.phaseHeaderKeys = ctx.reqHeaderKeys;
         processor.processRequestBody(ctx, requestBodyString);
         recordPhaseMetrics(phase, request.getRequestBody().getBody().size(), 0);
         break;
@@ -299,12 +302,15 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         Map<String, String> requestTrailers =
             plainMapFromProtoHeaders(request.getRequestTrailers().getTrailers());
         ctx.endOfStream = true;
+        ctx.phaseHeaderKeys = ctx.headerKeySet(requestTrailers);
         processor.processRequestTrailers(ctx, requestTrailers);
         recordPhaseMetrics(phase, 0, 0);
         break;
       case RESPONSE_HEADERS:
         HeaderMap protoResponseHeaders = request.getResponseHeaders().getHeaders();
         Map<String, String> responseHeaders = ctx.initializeResponse(protoResponseHeaders);
+        ctx.respHeaderKeys = ctx.headerKeySet(ctx.allResponseHeaders);
+        ctx.phaseHeaderKeys = ctx.respHeaderKeys;
         ctx.endOfStream = request.getResponseHeaders().getEndOfStream();
         processor.processResponseHeaders(ctx, responseHeaders);
         if (options.updateExtProcHeader) {
@@ -315,6 +321,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
       case RESPONSE_BODY:
         String responseBodyString = request.getResponseBody().getBody().toStringUtf8();
         ctx.endOfStream = request.getResponseBody().getEndOfStream();
+        ctx.phaseHeaderKeys = ctx.respHeaderKeys;
         processor.processResponseBody(ctx, responseBodyString);
         recordPhaseMetrics(phase, 0, request.getResponseBody().getBody().size());
         break;
@@ -322,6 +329,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
         Map<String, String> responseTrailers =
             plainMapFromProtoHeaders(request.getResponseTrailers().getTrailers());
         ctx.endOfStream = true;
+        ctx.phaseHeaderKeys = ctx.headerKeySet(responseTrailers);
         processor.processResponseTrailers(ctx, responseTrailers);
         recordPhaseMetrics(phase, 0, 0);
         break;

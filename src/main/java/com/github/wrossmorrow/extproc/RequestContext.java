@@ -15,6 +15,7 @@ import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.TrailersResponse;
 import build.buf.gen.envoy.type.v3.HttpStatus;
 import build.buf.gen.envoy.type.v3.StatusCode;
+import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -103,6 +104,15 @@ public class RequestContext {
   protected List<HeaderValueOption> addHeaders;
   protected List<String> removeHeaders;
 
+  /** Lower-cased header keys observed during a phase; drives mutation resolution. */
+  protected Map<String, Boolean> phaseHeaderKeys;
+
+  /** Lower-cased header keys observed during the request phases; carried into body phases. */
+  protected Map<String, Boolean> reqHeaderKeys;
+
+  /** Lower-cased header keys observed during the response phases; carried into body phases. */
+  protected Map<String, Boolean> respHeaderKeys;
+
   protected boolean finished;
   protected boolean replace;
   protected boolean cancelled;
@@ -147,6 +157,9 @@ public class RequestContext {
     addHeaders = new ArrayList<HeaderValueOption>();
     removeHeaders = new ArrayList<String>();
     bodyMutation = null;
+    // phase header state is re-seeded per phase by the server; the resolved
+    // (post-mutation) request/response key sets persist across phase carries
+    phaseHeaderKeys = null;
   }
 
   /** context initialization routine */
@@ -548,6 +561,114 @@ public class RequestContext {
     }
   }
 
+  /** Lower-cased header key set observed in a phase, for mutation resolution. */
+  protected Map<String, Boolean> headerKeySet(AllHeaders headers) {
+    Map<String, Boolean> keys = new HashMap<String, Boolean>();
+    if (headers != null) {
+      for (String key : headers.headers.keySet()) {
+        if (key != null) {
+          keys.put(key.toLowerCase(Locale.ROOT), Boolean.TRUE);
+        }
+      }
+    }
+    return keys;
+  }
+
+  /** Lower-cased header key set observed in a phase, for mutation resolution. */
+  protected Map<String, Boolean> headerKeySet(Map<String, String> headers) {
+    Map<String, Boolean> keys = new HashMap<String, Boolean>();
+    if (headers != null) {
+      for (String key : headers.keySet()) {
+        if (key != null) {
+          keys.put(key.toLowerCase(Locale.ROOT), Boolean.TRUE);
+        }
+      }
+    }
+    return keys;
+  }
+
+  /** Pending header mutations accumulated during the current phase. */
+  private HeaderMutation pendingHeaderMutation() {
+    HeaderMutation.Builder builder = HeaderMutation.newBuilder();
+    if (!addHeaders.isEmpty()) {
+      builder.addAllSetHeaders(addHeaders);
+    }
+    if (!removeHeaders.isEmpty()) {
+      builder.addAllRemoveHeaders(removeHeaders);
+    }
+    return builder.build();
+  }
+
+  /**
+   * Resolves pending header mutations against the known phase header keys, enforcing {@code
+   * ADD_IF_ABSENT} and {@code OVERWRITE_IF_EXISTS} semantics while Envoy's ext_proc filter ignores
+   * {@code HeaderValueOption.append_action} (envoyproxy/envoy#48886).
+   *
+   * <p>Returns the resolved mutation (the pending mutation unfiltered when no phase header state is
+   * known yet) and records the post-mutation key set on the context for the next phase.
+   */
+  protected HeaderMutation resolvedHeaderMutation() {
+    HeaderMutation pending = pendingHeaderMutation();
+    if (phaseHeaderKeys == null) {
+      // no phase header state yet; nothing to resolve against
+      return pending;
+    }
+    Map<String, Boolean> state = new HashMap<String, Boolean>(phaseHeaderKeys);
+    List<String> removeHeaders = new ArrayList<String>();
+    if (pending.getRemoveHeadersCount() > 0) {
+      removeHeaders.addAll(pending.getRemoveHeadersList());
+    }
+    for (String rm : removeHeaders) {
+      // Envoy ignores attempts to remove pseudo-headers or the host header.
+      if (rm == null) {
+        continue;
+      }
+      String k = rm.toLowerCase(Locale.ROOT);
+      if (!k.startsWith(":") && !k.equals("host")) {
+        state.remove(k);
+      }
+    }
+    List<HeaderValueOption> setHeaders = new ArrayList<HeaderValueOption>();
+    if (pending.getSetHeadersCount() > 0) {
+      for (HeaderValueOption ho : pending.getSetHeadersList()) {
+        if (ho == null) {
+          continue;
+        }
+        String k = ho.getHeader().getKey().toLowerCase(Locale.ROOT);
+        boolean exists = state.get(k) != null && state.get(k);
+        switch (ho.getAppendAction()) {
+          case ADD_IF_ABSENT:
+            if (exists) {
+              continue;
+            }
+            state.put(k, Boolean.TRUE);
+            setHeaders.add(ho);
+            break;
+          case OVERWRITE_IF_EXISTS:
+            if (!exists) {
+              continue;
+            }
+            setHeaders.add(ho);
+            break;
+          default:
+            state.put(k, Boolean.TRUE);
+            setHeaders.add(ho);
+            break;
+        }
+      }
+    }
+    HeaderMutation.Builder resolved = HeaderMutation.newBuilder();
+    resolved.addAllSetHeaders(setHeaders);
+    resolved.addAllRemoveHeaders(pending.getRemoveHeadersList());
+    // record the post-mutation key set for the next phase
+    if (phase == RequestCase.REQUEST_HEADERS || phase == RequestCase.REQUEST_BODY) {
+      reqHeaderKeys = state;
+    } else if (phase == RequestCase.RESPONSE_HEADERS || phase == RequestCase.RESPONSE_BODY) {
+      respHeaderKeys = state;
+    }
+    return resolved.build();
+  }
+
   protected HeadersResponse prepareHeadersResponse() {
     return HeadersResponse.newBuilder().setResponse(prepareCommonResponse()).build();
   }
@@ -561,12 +682,9 @@ public class RequestContext {
         CommonResponse.newBuilder()
             .setStatus(replace ? ResponseStatus.CONTINUE_AND_REPLACE : ResponseStatus.CONTINUE)
             .setClearRouteCache(clearRouteCache);
-    if (!addHeaders.isEmpty() || !removeHeaders.isEmpty()) {
-      common.setHeaderMutation(
-          HeaderMutation.newBuilder()
-              .addAllSetHeaders(addHeaders)
-              .addAllRemoveHeaders(removeHeaders)
-              .build());
+    HeaderMutation resolved = resolvedHeaderMutation();
+    if (resolved.getSetHeadersCount() > 0 || resolved.getRemoveHeadersCount() > 0) {
+      common.setHeaderMutation(resolved);
     }
     if (bodyMutation != null) {
       common.setBodyMutation(bodyMutation);
@@ -576,12 +694,9 @@ public class RequestContext {
 
   protected TrailersResponse prepareTrailersResponse() {
     TrailersResponse.Builder builder = TrailersResponse.newBuilder();
-    if (!addHeaders.isEmpty() || !removeHeaders.isEmpty()) {
-      builder.setHeaderMutation(
-          HeaderMutation.newBuilder()
-              .addAllSetHeaders(addHeaders)
-              .addAllRemoveHeaders(removeHeaders)
-              .build());
+    HeaderMutation resolved = resolvedHeaderMutation();
+    if (resolved.getSetHeadersCount() > 0 || resolved.getRemoveHeadersCount() > 0) {
+      builder.setHeaderMutation(resolved);
     }
     return builder.build();
   }
@@ -636,14 +751,22 @@ public class RequestContext {
 
   private HeaderValueOption buildHeaderValueOption(
       String name, String value, HeaderValueOption.HeaderAppendAction action) {
-    return HeaderValueOption.newBuilder()
-        .setHeader(
-            HeaderValue.newBuilder()
-                .setKey(name.toLowerCase(Locale.ROOT))
-                .setRawValue(ByteString.copyFromUtf8(value))
-                .build())
-        .setAppendAction(action)
-        .build();
+    HeaderValueOption.Builder builder =
+        HeaderValueOption.newBuilder()
+            .setHeader(
+                HeaderValue.newBuilder()
+                    .setKey(name.toLowerCase(Locale.ROOT))
+                    .setRawValue(ByteString.copyFromUtf8(value))
+                    .build())
+            .setAppendAction(action);
+    // Envoy's ext_proc MutationUtils::applyHeaderMutations evaluates the deprecated
+    // HeaderValueOption.append (defaulting to false) rather than append_action
+    // (envoyproxy/envoy#48886). Setting Append=true for APPEND_IF_EXISTS_OR_ADD preserves
+    // append behavior without colliding with a non-zero AppendAction.
+    if (action == HeaderValueOption.HeaderAppendAction.APPEND_IF_EXISTS_OR_ADD) {
+      builder.setAppend(BoolValue.of(true));
+    }
+    return builder.build();
   }
 
   protected void updateHeaders(
