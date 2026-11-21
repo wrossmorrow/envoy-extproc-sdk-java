@@ -304,7 +304,27 @@ public class ConformanceScenarios {
 
           @Override
           public Outcome run(ScenarioContext ctx) {
-            return Outcome.SKIP;
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "skip_request_headers_response_mutation",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void requestHeaders(RequestContext c, Map<String, String> headers) {
+                    // case asks the processor to skip the mutation entirely
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            Map<String, String> headers = new java.util.HashMap<String, String>();
+            headers.put(ConformanceProcessor.CASE_HEADER, "skip_request_headers_response_mutation");
+            processor.processRequestHeaders(phaseContext, headers);
+            ProcessingResponse processingResponse =
+                phaseContext.getResponse(RequestCase.REQUEST_HEADERS);
+            CommonResponse common = processingResponse.getRequestHeaders().getResponse();
+            boolean ok =
+                common != null
+                    && common.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && !common.hasHeaderMutation();
+            return ok ? Outcome.PASS : Outcome.FAIL;
           }
         });
     SCENARIOS.put(
