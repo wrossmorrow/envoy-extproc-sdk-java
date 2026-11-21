@@ -327,6 +327,53 @@ public class ConformanceScenarios {
           }
         });
     SCENARIOS.put(
+        "headers_multivalue_and_context_state",
+        new Scenario() {
+          @Override
+          public String name() {
+            return "headers_multivalue_and_context_state";
+          }
+
+          @Override
+          public Outcome run(ScenarioContext ctx) {
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "headers_multivalue_and_context_state",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void requestHeaders(RequestContext c, Map<String, String> headers) {
+                    c.overwriteHeaders(
+                        new java.util.HashMap<String, String>(
+                            Collections.singletonMap("x-assert-multi", "mutated")));
+                    c.setValue("conformance.context", "state");
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(
+                ConformanceProcessor.CASE_HEADER, "headers_multivalue_and_context_state");
+            Map<String, String> headers = new java.util.HashMap<String, String>();
+            headers.put(ConformanceProcessor.CASE_HEADER, "headers_multivalue_and_context_state");
+            processor.processRequestHeaders(phaseContext, headers);
+            ProcessingResponse processingResponse =
+                phaseContext.getResponse(RequestCase.REQUEST_HEADERS);
+            CommonResponse common = processingResponse.getRequestHeaders().getResponse();
+            boolean ok =
+                common != null
+                    && common.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && common.hasHeaderMutation();
+            if (ok) {
+              boolean sawContextState = false;
+              for (HeaderValueOption setHeader : common.getHeaderMutation().getSetHeadersList()) {
+                if (setHeader.getHeader().getKey().equals("x-assert-multi")) {
+                  sawContextState = true;
+                }
+              }
+              ok = sawContextState;
+            }
+            return ok ? Outcome.PASS : Outcome.FAIL;
+          }
+        });
+    SCENARIOS.put(
         "multi_filter_chaining",
         new Scenario() {
           @Override
