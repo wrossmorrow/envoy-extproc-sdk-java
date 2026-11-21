@@ -147,11 +147,11 @@ public class ConformanceReport {
 
   public static String renderMarkdown(SummaryReport report) {
     StringBuilder sb = new StringBuilder();
-    sb.append("<!-- ").append(CONFORMANCE_MATRIX_START_MARKER).append(" -->\n");
-    sb.append("<!-- ").append(CONFORMANCE_MATRIX_END_MARKER).append(" -->\n");
+    sb.append(CONFORMANCE_MATRIX_START_MARKER).append('\n');
+    sb.append(CONFORMANCE_MATRIX_END_MARKER).append('\n');
     sb.append("# Envoy conformance matrix\n\n");
     sb.append("Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.\n\n");
-    sb.append("| Feature | Category | SDK status |");
+    sb.append("| Feature | Category | SDK status");
     for (String version : report.versions) {
       sb.append(" | ").append(version);
     }
@@ -162,24 +162,19 @@ public class ConformanceReport {
     }
     sb.append(" |\n");
     for (FeatureSummary feature : report.features) {
-      for (String reportVersion : report.versions) {
-        CellSummary cell = feature.cells.get(reportVersion);
-        if (cell == null) {
-          continue;
-        }
-        sb.append("| ")
-            .append(feature.id)
-            .append(" | ")
-            .append(feature.category)
-            .append(" | ")
-            .append(feature.sdkStatus)
-            .append(" |");
-        for (String cellVersion : report.versions) {
-          CellSummary vcell = feature.cells.get(cellVersion);
-          sb.append(" | ").append(vcell.status);
-        }
-        sb.append(" |\n");
+      StringBuilder row = new StringBuilder(64);
+      row.append("| ")
+          .append(feature.id)
+          .append(" | ")
+          .append(feature.category)
+          .append(" | ")
+          .append(feature.sdkStatus);
+      for (String version : report.versions) {
+        CellSummary cell = feature.cells.get(version);
+        row.append(" | ").append(cell == null ? "not_run" : cell.status);
       }
+      row.append(" |\n");
+      sb.append(row);
     }
     sb.append("\n");
     return sb.toString();
@@ -200,7 +195,8 @@ public class ConformanceReport {
   }
 
   public static void writeMarkdown(String markdownOut, SummaryReport report) throws IOException {
-    Files.write(Paths.get(markdownOut), markdownOut.getBytes(StandardCharsets.UTF_8));
+    String markdown = renderMarkdown(report);
+    Files.write(Paths.get(markdownOut), markdown.getBytes(StandardCharsets.UTF_8));
   }
 
   public static void writeJson(SummaryReport report, Path jsonOut) throws IOException {
