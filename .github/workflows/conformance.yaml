@@ -8,7 +8,7 @@ on:
         required: false
         default: ''
       test_run:
-        description: 'Go test filter for the conformance suite'
+        description: 'Gradle test filter for the conformance suite (default: com.github.wrossmorrow.extproc.conformance.*)'
         required: false
         default: ''
   schedule:
@@ -21,7 +21,7 @@ on:
     paths:
       - 'conformance/**'
       - 'src/test/java/com/github/wrossmorrow/extproc/conformance/**'
-      - 'workflows/conformance.yaml'
+      - '.github/workflows/conformance.yaml'
 
 env:
   CONFORMANCE_REQUIRE_ENVOY: '1'
@@ -30,22 +30,23 @@ jobs:
   resolve-matrix:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.matrix.outputs.matrix }}
+      versions: ${{ steps.matrix.outputs.versions }}
       matrix_json: ${{ steps.matrix.outputs.matrix_json }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Resolve Envoy version matrix
         id: matrix
+        env:
+          INPUT_ENVOY_VERSION: ${{ inputs.envoy_version }}
         run: |
-          default_version=$(jq -r '.default' conformance/envoy-versions.json)
-          supported=$(jq -r '.supported[]' conformance/envoy-versions.json)
-          canary=$(jq -r '.canary[]' conformance/envoy-versions.json)
-          matrix_json=$(jq -n \
-            --arg default "$default_version" \
-            --argjson supported "$supported" \
-            --argjson canary "$canary" \
-            '{default: $default, supported: $supported, canary: $canary}')
-          echo "matrix=$matrix_json" >> "$GITHUB_OUTPUT"
+          if [ -n "$INPUT_ENVOY_VERSION" ]; then
+            versions=$(jq -cn --arg v "$INPUT_ENVOY_VERSION" '[$v]')
+            matrix_json=$(jq -cn --arg v "$INPUT_ENVOY_VERSION" '{default: $v, supported: [$v], canary: []}')
+          else
+            versions=$(jq -c '.supported + .canary | unique' conformance/envoy-versions.json)
+            matrix_json=$(jq -c '{default, supported, canary}' conformance/envoy-versions.json)
+          fi
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
           echo "matrix_json=$matrix_json" >> "$GITHUB_OUTPUT"
 
   conformance:
@@ -54,24 +55,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        envoy: ${{ fromJson(needs.resolve-matrix.outputs.matrix_json).supported }}
-        include:
-          - envoy: dev
+        envoy: ${{ fromJson(needs.resolve-matrix.outputs.versions) }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
       - name: Pull Envoy image
         run: docker pull envoyproxy/envoy:${{ matrix.envoy }}
       - name: Run conformance tests
+        env:
+          TEST_FILTER: ${{ inputs.test_run }}
         run: |
+          filter="${TEST_FILTER:-com.github.wrossmorrow.extproc.conformance.*}"
           CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${{ matrix.envoy }}" \
-            ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*" -v \
-            > "results-${{ matrix.envoy }}.log"
+            ./gradlew test --tests "$filter" --info \
+            | tee "results-${{ matrix.envoy }}.log"
       - name: Upload conformance results
-        uses: actions/upload-artifact@v4
+        if: always()
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-results-${{ matrix.envoy }}
           path: results-${{ matrix.envoy }}.log
@@ -81,12 +87,15 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '17'
-      - uses: actions/download-artifact@v4
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - uses: actions/download-artifact@v8
         with:
           pattern: conformance-results-*
           merge-multiple: true
@@ -94,7 +103,7 @@ jobs:
       - name: Generate conformance matrix
         run: ./gradlew conformanceReport
       - name: Upload conformance summary
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: conformance-summary
           path: |

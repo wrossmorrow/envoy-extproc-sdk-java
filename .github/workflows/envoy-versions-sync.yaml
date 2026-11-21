@@ -9,21 +9,28 @@ on:
     paths:
       - 'conformance/envoy-versions.json'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
       - name: Fetch endoflife.date Envoy data
-        run: curl -sL https://endoflife.date/api/envoy.json > /tmp/eol-envoy.json
+        run: curl -fsSL https://endoflife.date/api/envoy.json -o /tmp/eol-envoy.json
       - name: Sync Envoy version manifest
         run: ./gradlew syncEnvoyVersions
       - name: Upload updated manifest
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: envoy-versions-manifest
           path: conformance/envoy-versions.json
@@ -35,5 +42,4 @@ jobs:
           commit-message: 'chore: sync envoy version manifest from endoflife.date'
           body: |
             Automated sync of the Envoy version manifest against the endoflife.date API.
-          path: conformance/envoy-versions.json
-          author: 'github-actions[bot]'
+          add-paths: conformance/envoy-versions.json
