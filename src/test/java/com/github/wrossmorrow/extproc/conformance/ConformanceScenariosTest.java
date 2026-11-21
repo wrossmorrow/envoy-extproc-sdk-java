@@ -65,6 +65,33 @@ public class ConformanceScenariosTest {
   }
 
   @Test
+  void runImplementedScenariosReturnPass() {
+    ConformanceScenarios.ScenarioContext ctx =
+        new ConformanceScenarios.ScenarioContext(
+            null,
+            ConformanceProcessor.newDefault("conformance"),
+            null,
+            new EnvoyHttpClient("http://127.0.0.1:1", 1000));
+    List<String> implemented =
+        java.util.Arrays.asList(
+            "headers_mutations_http1",
+            "post_with_body_mode_none",
+            "buffered_body_replace_grow_and_shrink",
+            "buffered_body_clear",
+            "clear_route_cache_from_request_body",
+            "immediate_response_request_headers",
+            "skip_request_headers_response_mutation",
+            "streamed_body_chunks",
+            "http1_chunked_response_buffered_replace_and_clear");
+    List<ConformanceScenarios.ScenarioResult> results =
+        ConformanceScenarios.runAll(ctx, implemented);
+    assertEquals(implemented.size(), results.size());
+    for (ConformanceScenarios.ScenarioResult result : results) {
+      assertEquals(ConformanceScenarios.Outcome.PASS, result.outcome);
+    }
+  }
+
+  @Test
   void runAllReturnsResultsForRequestedNames() {
     ConformanceScenarios.ScenarioContext ctx =
         new ConformanceScenarios.ScenarioContext(

@@ -93,12 +93,9 @@ public class ConformanceScenarios {
                     && common.hasHeaderMutation();
             if (ok) {
               for (HeaderValueOption setHeader : common.getHeaderMutation().getSetHeadersList()) {
-                if (setHeader.getHeader().getKey().equals("x-assert-overwrite")
-                    && setHeader.getHeader().getValue().equals("mutated")) {
-                  ok = true;
-                } else {
-                  ok = false;
-                }
+                ok =
+                    setHeader.getHeader().getKey().equals("x-assert-overwrite")
+                        && setHeader.getHeader().getRawValue().toStringUtf8().equals("mutated");
               }
             }
             return ok ? Outcome.PASS : Outcome.FAIL;
@@ -158,6 +155,8 @@ public class ConformanceScenarios {
                   }
                 });
             RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(
+                ConformanceProcessor.CASE_HEADER, "buffered_body_replace_grow_and_shrink");
             processor.processRequestBody(phaseContext, "hello");
             ProcessingResponse processingResponse =
                 phaseContext.getResponse(RequestCase.REQUEST_BODY);
@@ -533,6 +532,72 @@ public class ConformanceScenarios {
           @Override
           public Outcome run(ScenarioContext ctx) {
             return Outcome.SKIP;
+          }
+        });
+    SCENARIOS.put(
+        "streamed_body_chunks",
+        new Scenario() {
+          @Override
+          public String name() {
+            return "streamed_body_chunks";
+          }
+
+          @Override
+          public Outcome run(ScenarioContext ctx) {
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "streamed_body_chunks",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void requestBody(RequestContext c, String body) {
+                    c.replaceBodyChunk(body);
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(ConformanceProcessor.CASE_HEADER, "streamed_body_chunks");
+            processor.processRequestBody(phaseContext, "chunk");
+            ProcessingResponse processingResponse =
+                phaseContext.getResponse(RequestCase.REQUEST_BODY);
+            CommonResponse common = processingResponse.getRequestBody().getResponse();
+            boolean ok =
+                common != null
+                    && common.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && common.getBodyMutation().hasBody();
+            return ok ? Outcome.PASS : Outcome.FAIL;
+          }
+        });
+    SCENARIOS.put(
+        "http1_chunked_response_buffered_replace_and_clear",
+        new Scenario() {
+          @Override
+          public String name() {
+            return "http1_chunked_response_buffered_replace_and_clear";
+          }
+
+          @Override
+          public Outcome run(ScenarioContext ctx) {
+            ConformanceProcessor processor = ctx.processor;
+            processor.register(
+                "http1_chunked_response_buffered_replace_and_clear",
+                new ConformanceProcessor.CaseHandler() {
+                  @Override
+                  public void responseBody(RequestContext c, String body) {
+                    c.replaceBody(body);
+                  }
+                });
+            RequestContext phaseContext = new RequestContext();
+            phaseContext.setValue(
+                ConformanceProcessor.CASE_HEADER,
+                "http1_chunked_response_buffered_replace_and_clear");
+            processor.processResponseBody(phaseContext, "hello");
+            ProcessingResponse processingResponse =
+                phaseContext.getResponse(RequestCase.RESPONSE_BODY);
+            CommonResponse common = processingResponse.getResponseBody().getResponse();
+            boolean ok =
+                common != null
+                    && common.getStatus() == CommonResponse.ResponseStatus.CONTINUE
+                    && common.getBodyMutation().hasBody();
+            return ok ? Outcome.PASS : Outcome.FAIL;
           }
         });
   }
