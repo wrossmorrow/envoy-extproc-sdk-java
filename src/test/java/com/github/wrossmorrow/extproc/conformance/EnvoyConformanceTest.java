@@ -13,6 +13,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.BeforeAll;
@@ -148,5 +149,28 @@ public class EnvoyConformanceTest {
 
   @Test
   @EnabledIfEnvironmentVariable(named = "CONFORMANCE_REQUIRE_ENVOY", matches = "1")
-  void envoyGatedConformanceExchange() {}
+  void envoyGatedConformanceExchange() throws Exception {
+    EnvoyRunner runner = EnvoyRunner.start(new EnvoyRunner.EnvoyConfig());
+    try {
+      ConformanceScenarios.ScenarioContext ctx =
+          new ConformanceScenarios.ScenarioContext(
+              runner,
+              ConformanceProcessor.newDefault("conformance"),
+              null,
+              new EnvoyHttpClient(runner.proxyUrl(), 5000));
+      List<ConformanceScenarios.ScenarioResult> results =
+          ConformanceScenarios.runAll(ctx, ConformanceScenarios.scenarioNames());
+      for (ConformanceScenarios.ScenarioResult result : results) {
+        System.out.println(
+            "conformance scenario "
+                + result.scenario
+                + " => "
+                + result.outcome
+                + " "
+                + result.detail);
+      }
+    } finally {
+      runner.close();
+    }
+  }
 }
