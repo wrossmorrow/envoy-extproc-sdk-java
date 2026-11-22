@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.wrossmorrow.extproc.ExternalProcessorServer;
+import com.github.wrossmorrow.extproc.ModeOverride;
 import com.github.wrossmorrow.extproc.ProcessingOptions;
 import com.github.wrossmorrow.extproc.RequestContext;
 import com.github.wrossmorrow.extproc.ServerOptions;
@@ -31,6 +32,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
@@ -772,5 +774,249 @@ public class EnvoyLiveConformanceTest {
         client.send("GET", "/profile/observability", caseHeaders(id), null);
     assertEquals(200, resp.status);
     runner.assertNoProtocolErrors();
+  }
+
+  @Test
+  void mode_override(TestInfo info) throws Exception {
+    String id = info.getTestMethod().get().getName();
+
+    // 1. opt_in_buffered_bodies_and_trailers
+    String optInId = id + "-opt-in";
+    final AtomicReference<String> reqBodySeen = new AtomicReference<String>("");
+    final Map<String, String> reqTrailersSeen =
+        Collections.synchronizedMap(new LinkedHashMap<String, String>());
+    final AtomicBoolean respHeadersCalled = new AtomicBoolean(false);
+    final AtomicReference<String> respBodySeen = new AtomicReference<String>("");
+    final Map<String, String> respTrailersSeen =
+        Collections.synchronizedMap(new LinkedHashMap<String, String>());
+    defaultProcessor.register(
+        optInId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+                    .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED)
+                    .setResponseBodyMode(ModeOverride.BodySendMode.BUFFERED)
+                    .setRequestTrailerMode(ModeOverride.HeaderSendMode.SEND)
+                    .setResponseTrailerMode(ModeOverride.HeaderSendMode.SEND));
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            reqBodySeen.set(body);
+            ctx.replaceBody("req-override:" + body);
+          }
+
+          @Override
+          public void requestTrailers(RequestContext ctx, Map<String, String> trailers) {
+            reqTrailersSeen.putAll(trailers);
+            ctx.overwriteHeader("x-req-trailer-override", "from-extproc");
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            respHeadersCalled.set(true);
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            respBodySeen.set(body);
+            ctx.replaceBody("resp-override:" + body);
+          }
+
+          @Override
+          public void responseTrailers(RequestContext ctx, Map<String, String> trailers) {
+            respTrailersSeen.putAll(trailers);
+            ctx.overwriteHeader("x-resp-trailer-override", "from-extproc");
+          }
+        });
+    Map<String, String> optInHeaders = caseHeaders(optInId);
+    optInHeaders.put("x-upstream-trailer-x-up-trailer", "from-upstream");
+    Map<String, String> optInTrailers = new LinkedHashMap<String, String>();
+    optInTrailers.put("x-client-trailer", "from-client");
+    EnvoyHttpClient.Response optInResp =
+        client.sendH2c("POST", "/profile/mode-override", optInHeaders, "hello", optInTrailers);
+    assertEquals(200, optInResp.status, optInResp.body);
+    assertTrue(optInResp.body.startsWith("resp-override:"), optInResp.body);
+    UpstreamServer.UpstreamEcho optInEcho =
+        MAPPER.readValue(
+            optInResp.body.substring("resp-override:".length()), UpstreamServer.UpstreamEcho.class);
+    assertEquals("hello", reqBodySeen.get());
+    assertEquals("req-override:hello", optInEcho.body);
+    assertEquals("from-client", reqTrailersSeen.get("x-client-trailer"));
+    assertEquals(
+        Collections.singletonList("from-client"), optInEcho.trailers.get("x-client-trailer"));
+    assertEquals(
+        Collections.singletonList("from-extproc"),
+        optInEcho.trailers.get("x-req-trailer-override"));
+    assertTrue(respHeadersCalled.get());
+    assertFalse(respBodySeen.get().isEmpty());
+    assertEquals("from-upstream", respTrailersSeen.get("x-up-trailer"));
+
+    // 2. skip_remaining_phases
+    String skipId = id + "-skip";
+    final AtomicInteger unexpectedPhases = new AtomicInteger();
+    defaultProcessor.register(
+        skipId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.skipRemainingPhases();
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            unexpectedPhases.incrementAndGet();
+          }
+
+          @Override
+          public void requestTrailers(RequestContext ctx, Map<String, String> trailers) {
+            unexpectedPhases.incrementAndGet();
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            unexpectedPhases.incrementAndGet();
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            unexpectedPhases.incrementAndGet();
+          }
+
+          @Override
+          public void responseTrailers(RequestContext ctx, Map<String, String> trailers) {
+            unexpectedPhases.incrementAndGet();
+          }
+        });
+    UpstreamServer.UpstreamEcho skipEcho =
+        parseEcho(client.send("POST", "/profile/mode-override", caseHeaders(skipId), "skip-body"));
+    assertEquals("skip-body", skipEcho.body);
+    assertEquals(0, unexpectedPhases.get());
+
+    // 3. response_headers_streamed_body
+    String streamId = id + "-resp-streamed";
+    final AtomicInteger respStreamCalls = new AtomicInteger();
+    defaultProcessor.register(
+        streamId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+                    .setResponseBodyMode(ModeOverride.BodySendMode.STREAMED));
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            respStreamCalls.incrementAndGet();
+            ctx.replaceBodyChunk(body.toUpperCase(Locale.ROOT));
+          }
+        });
+    Map<String, String> streamHeaders = caseHeaders(streamId);
+    streamHeaders.put("x-upstream-chunks", "3");
+    streamHeaders.put("x-upstream-raw-body", "chunk1-chunk2-chunk3");
+    EnvoyHttpClient.Response streamResp =
+        client.send("GET", "/profile/mode-override", streamHeaders, null);
+    assertEquals(200, streamResp.status, streamResp.body);
+    assertTrue(respStreamCalls.get() >= 1);
+    assertEquals("CHUNK1-CHUNK2-CHUNK3", streamResp.body);
+
+    // 4. ignored_when_disabled_on_filter
+    String disabledId = id + "-disabled-filter";
+    final AtomicInteger disabledCalls = new AtomicInteger();
+    defaultProcessor.register(
+        disabledId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED)
+                    .setResponseBodyMode(ModeOverride.BodySendMode.BUFFERED));
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            disabledCalls.incrementAndGet();
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            disabledCalls.incrementAndGet();
+          }
+        });
+    UpstreamServer.UpstreamEcho disabledEcho =
+        parseEcho(client.send("POST", "/mode/none", caseHeaders(disabledId), "unchanged"));
+    assertEquals("unchanged", disabledEcho.body);
+    assertEquals(0, disabledCalls.get());
+
+    // 5. allowed_override_modes_allowlist
+    String allowOkId = id + "-allowlist-ok";
+    final AtomicInteger allowOkReqBody = new AtomicInteger();
+    final AtomicInteger allowOkRespBody = new AtomicInteger();
+    defaultProcessor.register(
+        allowOkId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+                    .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED)
+                    .setResponseBodyMode(ModeOverride.BodySendMode.NONE)
+                    .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
+                    .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            allowOkReqBody.incrementAndGet();
+            ctx.replaceBody("allowlisted:" + body);
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            allowOkRespBody.incrementAndGet();
+          }
+        });
+    UpstreamServer.UpstreamEcho allowOkEcho =
+        parseEcho(
+            client.send(
+                "POST", "/profile/mode-override-allowlist", caseHeaders(allowOkId), "payload"));
+    assertEquals("allowlisted:payload", allowOkEcho.body);
+    assertEquals(1, allowOkReqBody.get());
+    assertEquals(0, allowOkRespBody.get());
+
+    String allowDeniedId = id + "-allowlist-denied";
+    final AtomicInteger allowDeniedReqBody = new AtomicInteger();
+    defaultProcessor.register(
+        allowDeniedId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+                    .setRequestBodyMode(ModeOverride.BodySendMode.STREAMED)
+                    .setResponseBodyMode(ModeOverride.BodySendMode.NONE)
+                    .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
+                    .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            allowDeniedReqBody.incrementAndGet();
+          }
+        });
+    UpstreamServer.UpstreamEcho allowDeniedEcho =
+        parseEcho(
+            client.send(
+                "POST", "/profile/mode-override-allowlist", caseHeaders(allowDeniedId), "payload"));
+    assertEquals("payload", allowDeniedEcho.body);
+    assertEquals(0, allowDeniedReqBody.get());
   }
 }

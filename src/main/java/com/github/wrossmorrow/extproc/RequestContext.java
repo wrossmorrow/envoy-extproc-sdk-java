@@ -3,6 +3,7 @@ package com.github.wrossmorrow.extproc;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse;
@@ -120,6 +121,7 @@ public class RequestContext {
   protected boolean observabilityMode;
   BodyMutation bodyMutation;
   ImmediateResponse immediateResponse;
+  protected ProcessingMode modeOverride;
 
   public RequestContext() {
     this("x-request-id");
@@ -162,6 +164,7 @@ public class RequestContext {
     // (post-mutation) request/response key sets persist across phase carries
     phaseHeaderKeys = null;
     observabilityMode = false;
+    modeOverride = null;
   }
 
   /** context initialization routine */
@@ -539,6 +542,53 @@ public class RequestContext {
     immediateResponse = builder.build();
   }
 
+  /**
+   * Requests a dynamic {@code ProcessingMode} override for this stream on header phase responses.
+   * Only permitted during header phases ({@code REQUEST_HEADERS} or {@code RESPONSE_HEADERS}) and
+   * applied to the response only when not cancelled.
+   *
+   * @throws IllegalStateException if called during a body or trailer phase
+   * @throws IllegalArgumentException if {@code mode} or any of its fields is {@code null}
+   */
+  public void overrideMode(ModeOverride mode) {
+    if (phase != null
+        && phase != RequestCase.REQUEST_NOT_SET
+        && phase != RequestCase.REQUEST_HEADERS
+        && phase != RequestCase.RESPONSE_HEADERS) {
+      throw new IllegalStateException(
+          "mode_override is only supported during header phases, not " + phase);
+    }
+    if (mode == null) {
+      throw new IllegalArgumentException("mode override must not be null");
+    }
+    ProcessingMode resolved = mode.toEnvoyProcessingMode();
+    this.modeOverride = resolved;
+  }
+
+  /** Clears any pending dynamic mode override on the current phase. */
+  public void clearModeOverride() {
+    this.modeOverride = null;
+  }
+
+  /**
+   * Convenience override that instructs Envoy to skip all remaining processing phases (response
+   * headers, request/response bodies, and request/response trailers) for this stream.
+   */
+  public void skipRemainingPhases() {
+    overrideMode(
+        new ModeOverride()
+            .setResponseHeaderMode(ModeOverride.HeaderSendMode.SKIP)
+            .setRequestBodyMode(ModeOverride.BodySendMode.NONE)
+            .setResponseBodyMode(ModeOverride.BodySendMode.NONE)
+            .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
+            .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
+  }
+
+  /** Returns the pending Envoy {@link ProcessingMode} override for this phase, or {@code null}. */
+  public ProcessingMode getModeOverride() {
+    return modeOverride;
+  }
+
   /** return the response for a given phase; will not return null but may throw */
   public ProcessingResponse getResponse(RequestCase phase) {
 
@@ -546,23 +596,28 @@ public class RequestContext {
       return ProcessingResponse.newBuilder().setImmediateResponse(immediateResponse).build();
     }
 
+    ProcessingResponse.Builder builder = ProcessingResponse.newBuilder();
     switch (phase) {
       case REQUEST_HEADERS:
-        return ProcessingResponse.newBuilder().setRequestHeaders(prepareHeadersResponse()).build();
+        builder.setRequestHeaders(prepareHeadersResponse());
+        if (modeOverride != null) {
+          builder.setModeOverride(modeOverride);
+        }
+        return builder.build();
       case REQUEST_BODY:
-        return ProcessingResponse.newBuilder().setRequestBody(prepareBodyResponse()).build();
+        return builder.setRequestBody(prepareBodyResponse()).build();
       case REQUEST_TRAILERS:
-        return ProcessingResponse.newBuilder()
-            .setRequestTrailers(prepareTrailersResponse())
-            .build();
+        return builder.setRequestTrailers(prepareTrailersResponse()).build();
       case RESPONSE_HEADERS:
-        return ProcessingResponse.newBuilder().setResponseHeaders(prepareHeadersResponse()).build();
+        builder.setResponseHeaders(prepareHeadersResponse());
+        if (modeOverride != null) {
+          builder.setModeOverride(modeOverride);
+        }
+        return builder.build();
       case RESPONSE_BODY:
-        return ProcessingResponse.newBuilder().setResponseBody(prepareBodyResponse()).build();
+        return builder.setResponseBody(prepareBodyResponse()).build();
       case RESPONSE_TRAILERS:
-        return ProcessingResponse.newBuilder()
-            .setResponseTrailers(prepareTrailersResponse())
-            .build();
+        return builder.setResponseTrailers(prepareTrailersResponse()).build();
       default:
         throw new RuntimeException("unknown request phase");
     }
