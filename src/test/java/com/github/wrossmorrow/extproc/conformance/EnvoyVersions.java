@@ -1,5 +1,6 @@
 package com.github.wrossmorrow.extproc.conformance;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.ByteArrayInputStream;
@@ -38,7 +39,9 @@ public class EnvoyVersions {
 
   /** Supported Envoy versions and their default target. */
   public static final class EnvoyVersionManifest {
+    @JsonProperty("default")
     public String defaultVersion;
+
     public List<String> supported = new ArrayList<String>();
     public List<String> canary = new ArrayList<String>();
 
