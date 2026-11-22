@@ -5,19 +5,26 @@ import static org.junit.jupiter.api.Assertions.*;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
+import build.buf.gen.envoy.config.core.v3.Metadata;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.ProtocolConfiguration;
 import build.buf.gen.envoy.type.v3.StatusCode;
+import com.google.protobuf.Any;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.StringValue;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -834,5 +841,154 @@ class ContextTest {
     ctx.initializeRequest(HeaderMap.getDefaultInstance());
     ctx.initializeResponse(HeaderMap.getDefaultInstance());
     assertEquals(expected, ctx.getProtocolConfig());
+  }
+
+  @Test
+  void dynamicMetadataValidationAttachmentAndInboundMerging() throws Exception {
+    RequestContext ctx = new RequestContext();
+    assertThrows(IllegalArgumentException.class, () -> ctx.setDynamicMetadata("", "k", "v"));
+    assertThrows(IllegalArgumentException.class, () -> ctx.setDynamicMetadata(null, "k", "v"));
+    assertThrows(
+        IllegalArgumentException.class, () -> ctx.setDynamicMetadata("com.example.ns", "", "v"));
+    assertThrows(
+        IllegalArgumentException.class, () -> ctx.setDynamicMetadata("com.example.ns", null, "v"));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ctx.setDynamicMetadata("com.example.ns", "bad", new Object()));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ctx.setDynamicMetadata("com.example.ns", "nan", Double.NaN));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ctx.setDynamicMetadata("com.example.ns", "bad_utf16", "\uD800"));
+    assertNull(ctx.getDynamicMetadata());
+
+    ctx.setDynamicMetadata("com.example.ns", "initial", "ok");
+    Map<String, Object> badNamespace = new LinkedHashMap<String, Object>();
+    badNamespace.put("drop", "should-not-apply");
+    badNamespace.put("", "bad-key");
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ctx.setDynamicMetadataNamespace("com.example.ns", badNamespace));
+    Struct nsOneProto =
+        ctx.getDynamicMetadata().getFieldsMap().get("com.example.ns").getStructValue();
+    assertFalse(nsOneProto.getFieldsMap().containsKey("drop"));
+
+    Map<String, Object> validNamespace = new LinkedHashMap<String, Object>();
+    validNamespace.put("count", 42);
+    validNamespace.put("tags", Arrays.asList("a", "b"));
+    validNamespace.put("nested", Collections.singletonMap("enabled", Boolean.TRUE));
+    validNamespace.put("empty", null);
+    ctx.setDynamicMetadataNamespace("com.example.ns", validNamespace);
+    ctx.setDynamicMetadata("com.example.other", "flag", true);
+
+    Map<String, Object> nsOneMap =
+        StructValues.toMap(
+            ctx.getDynamicMetadata().getFieldsMap().get("com.example.ns").getStructValue());
+    assertEquals("ok", nsOneMap.get("initial"));
+    assertEquals(Double.valueOf(42.0), nsOneMap.get("count"));
+    assertEquals(Arrays.asList("a", "b"), nsOneMap.get("tags"));
+    assertEquals(Collections.singletonMap("enabled", Boolean.TRUE), nsOneMap.get("nested"));
+    assertTrue(nsOneMap.containsKey("empty"));
+    assertNull(nsOneMap.get("empty"));
+    assertEquals(
+        Boolean.TRUE,
+        StructValues.toMap(
+                ctx.getDynamicMetadata().getFieldsMap().get("com.example.other").getStructValue())
+            .get("flag"));
+
+    for (RequestCase phase :
+        new RequestCase[] {
+          RequestCase.REQUEST_HEADERS,
+          RequestCase.REQUEST_BODY,
+          RequestCase.REQUEST_TRAILERS,
+          RequestCase.RESPONSE_HEADERS,
+          RequestCase.RESPONSE_BODY,
+          RequestCase.RESPONSE_TRAILERS
+        }) {
+      RequestContext phaseCtx = new RequestContext();
+      phaseCtx.reset(phase);
+      phaseCtx.setDynamicMetadata("com.example.phase", "name", phase.name());
+      ProcessingResponse resp = phaseCtx.getResponse(phase);
+      assertTrue(resp.hasDynamicMetadata(), "expected dynamic_metadata on " + phase);
+      assertEquals(
+          phase.name(),
+          resp.getDynamicMetadata()
+              .getFieldsMap()
+              .get("com.example.phase")
+              .getStructValue()
+              .getFieldsMap()
+              .get("name")
+              .getStringValue());
+
+      phaseCtx.clearDynamicMetadata();
+      assertFalse(phaseCtx.getResponse(phase).hasDynamicMetadata());
+    }
+
+    RequestContext immCtx = new RequestContext();
+    immCtx.reset(RequestCase.REQUEST_HEADERS);
+    immCtx.setDynamicMetadata("com.example.auth", "denied", true);
+    immCtx.cancelRequest(403, "forbidden");
+    ProcessingResponse immResp = immCtx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(immResp.hasImmediateResponse());
+    assertTrue(immResp.hasDynamicMetadata());
+    assertTrue(
+        immResp
+            .getDynamicMetadata()
+            .getFieldsMap()
+            .get("com.example.auth")
+            .getStructValue()
+            .getFieldsMap()
+            .get("denied")
+            .getBoolValue());
+    immCtx.reset(RequestCase.RESPONSE_HEADERS);
+    assertNull(immCtx.getDynamicMetadata());
+
+    RequestContext inCtx = new RequestContext();
+    inCtx.mergeMetadataContext(
+        Metadata.newBuilder()
+            .putFilterMetadata(
+                "com.example.auth",
+                Struct.newBuilder()
+                    .putFields("sub", Value.newBuilder().setStringValue("alice").build())
+                    .putFields("role", Value.newBuilder().setStringValue("reader").build())
+                    .build())
+            .putTypedFilterMetadata("com.example.typed", Any.pack(StringValue.of("typed-v1")))
+            .build());
+    inCtx.mergeAttributes(
+        Collections.singletonMap(
+            "envoy.filters.http.ext_proc",
+            Struct.newBuilder()
+                .putFields("request.protocol", Value.newBuilder().setStringValue("HTTP/2").build())
+                .putFields("xds.route_name", Value.newBuilder().setStringValue("r1").build())
+                .build()));
+
+    inCtx.reset(RequestCase.RESPONSE_HEADERS);
+    inCtx.initializeRequest(HeaderMap.getDefaultInstance());
+    inCtx.initializeResponse(HeaderMap.getDefaultInstance());
+
+    inCtx.mergeMetadataContext(
+        Metadata.newBuilder()
+            .putFilterMetadata(
+                "com.example.auth",
+                Struct.newBuilder()
+                    .putFields("role", Value.newBuilder().setStringValue("admin").build())
+                    .build())
+            .build());
+    inCtx.mergeAttributes(
+        Collections.singletonMap(
+            "envoy.filters.http.ext_proc",
+            Struct.newBuilder()
+                .putFields("response.code", Value.newBuilder().setNumberValue(200).build())
+                .build()));
+
+    assertEquals("alice", inCtx.getMetadata().get("com.example.auth").get("sub"));
+    assertEquals("admin", inCtx.getMetadata().get("com.example.auth").get("role"));
+    assertEquals(
+        "typed-v1",
+        inCtx.getTypedMetadata().get("com.example.typed").unpack(StringValue.class).getValue());
+    assertEquals("HTTP/2", inCtx.getAttributes().get("request.protocol"));
+    assertEquals("r1", inCtx.getAttributes().get("xds.route_name"));
+    assertEquals(Double.valueOf(200.0), inCtx.getAttributes().get("response.code"));
   }
 }

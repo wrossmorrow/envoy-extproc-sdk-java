@@ -3,6 +3,7 @@ package com.github.wrossmorrow.extproc;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
+import build.buf.gen.envoy.config.core.v3.Metadata;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.BodyResponse;
@@ -16,15 +17,20 @@ import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.TrailersResponse;
 import build.buf.gen.envoy.type.v3.HttpStatus;
 import build.buf.gen.envoy.type.v3.StatusCode;
+import com.google.protobuf.Any;
 import com.google.protobuf.BoolValue;
 import com.google.protobuf.ByteString;
+import com.google.protobuf.Struct;
+import com.google.protobuf.Value;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -123,6 +129,10 @@ public class RequestContext {
   ImmediateResponse immediateResponse;
   protected ProcessingMode modeOverride;
   protected ProtocolConfig protocolConfig;
+  protected Map<String, Map<String, Object>> metadata;
+  protected Map<String, Any> typedMetadata;
+  protected Map<String, Object> attributes;
+  protected Struct dynamicMetadata;
 
   public RequestContext() {
     this("x-request-id");
@@ -143,6 +153,9 @@ public class RequestContext {
     allRequestHeaders = new AllHeaders();
     allResponseHeaders = new AllHeaders();
     protocolConfig = null;
+    metadata = new LinkedHashMap<String, Map<String, Object>>();
+    typedMetadata = new LinkedHashMap<String, Any>();
+    attributes = new LinkedHashMap<String, Object>();
     reset();
   }
 
@@ -167,6 +180,47 @@ public class RequestContext {
     phaseHeaderKeys = null;
     observabilityMode = false;
     modeOverride = null;
+    dynamicMetadata = null;
+  }
+
+  /** Merges inbound {@code ProcessingRequest.metadata_context} into stream-scoped metadata maps. */
+  protected void mergeMetadataContext(Metadata md) {
+    if (md == null) {
+      return;
+    }
+    for (Map.Entry<String, Struct> entry : md.getFilterMetadataMap().entrySet()) {
+      Struct st = entry.getValue();
+      if (st == null) {
+        continue;
+      }
+      Map<String, Object> nsMap = metadata.get(entry.getKey());
+      if (nsMap == null) {
+        nsMap = new LinkedHashMap<String, Object>();
+        metadata.put(entry.getKey(), nsMap);
+      }
+      nsMap.putAll(StructValues.toMap(st));
+    }
+    for (Map.Entry<String, Any> entry : md.getTypedFilterMetadataMap().entrySet()) {
+      Any anyVal = entry.getValue();
+      if (anyVal != null) {
+        typedMetadata.put(entry.getKey(), anyVal);
+      }
+    }
+  }
+
+  /** Merges inbound CEL {@code ProcessingRequest.attributes} flattened into {@code attributes}. */
+  protected void mergeAttributes(Map<String, Struct> attrs) {
+    if (attrs == null || attrs.isEmpty()) {
+      return;
+    }
+    List<String> sortedNamespaces = new ArrayList<String>(attrs.keySet());
+    Collections.sort(sortedNamespaces);
+    for (String ns : sortedNamespaces) {
+      Struct st = attrs.get(ns);
+      if (st != null) {
+        attributes.putAll(StructValues.toMap(st));
+      }
+    }
   }
 
   /** context initialization routine */
@@ -473,6 +527,35 @@ public class RequestContext {
     return protocolConfig;
   }
 
+  /**
+   * Returns untyped dynamic metadata forwarded by Envoy ({@code metadata_context.filter_metadata}),
+   * keyed by namespace and merged across all phases of the stream.
+   */
+  public Map<String, Map<String, Object>> getMetadata() {
+    return metadata;
+  }
+
+  /**
+   * Returns typed dynamic metadata forwarded by Envoy ({@code
+   * metadata_context.typed_filter_metadata}), keyed by namespace and merged across the stream.
+   */
+  public Map<String, Any> getTypedMetadata() {
+    return typedMetadata;
+  }
+
+  /**
+   * Returns evaluated CEL request/response attributes forwarded by Envoy, flattened by attribute
+   * name and merged across all phases of the stream.
+   */
+  public Map<String, Object> getAttributes() {
+    return attributes;
+  }
+
+  /** Returns the pending outbound {@code dynamic_metadata} Struct for the current phase. */
+  public Struct getDynamicMetadata() {
+    return dynamicMetadata;
+  }
+
   public String getProcessorId() {
     return processorId;
   }
@@ -616,14 +699,73 @@ public class RequestContext {
     return modeOverride;
   }
 
+  /**
+   * Sets {@code key=value} under {@code namespace} in the current phase's {@code
+   * ProcessingResponse.dynamic_metadata}.
+   */
+  public void setDynamicMetadata(String namespace, String key, Object value) {
+    if (namespace == null || namespace.isEmpty()) {
+      throw new IllegalArgumentException("dynamic metadata namespace cannot be empty");
+    }
+    if (key == null || key.isEmpty()) {
+      throw new IllegalArgumentException("dynamic metadata key cannot be empty");
+    }
+    Value pbVal = StructValues.toProtoValue(value);
+    mergeNamespaceFields(namespace, Collections.singletonMap(key, pbVal));
+  }
+
+  /**
+   * Merges {@code values} under {@code namespace} in the current phase's {@code
+   * ProcessingResponse.dynamic_metadata}. Validation is all-or-nothing.
+   */
+  public void setDynamicMetadataNamespace(String namespace, Map<String, ?> values) {
+    if (namespace == null || namespace.isEmpty()) {
+      throw new IllegalArgumentException("dynamic metadata namespace cannot be empty");
+    }
+    if (values == null) {
+      throw new IllegalArgumentException("dynamic metadata values must not be null");
+    }
+    Map<String, Value> converted = new LinkedHashMap<String, Value>(values.size());
+    for (Map.Entry<String, ?> entry : values.entrySet()) {
+      String key = entry.getKey();
+      if (key == null || key.isEmpty()) {
+        throw new IllegalArgumentException("dynamic metadata key cannot be empty");
+      }
+      converted.put(key, StructValues.toProtoValue(entry.getValue()));
+    }
+    mergeNamespaceFields(namespace, converted);
+  }
+
+  /** Removes all pending outbound {@code dynamic_metadata} for the current phase. */
+  public void clearDynamicMetadata() {
+    this.dynamicMetadata = null;
+  }
+
+  private void mergeNamespaceFields(String namespace, Map<String, Value> fields) {
+    Struct.Builder rootBuilder =
+        dynamicMetadata == null ? Struct.newBuilder() : dynamicMetadata.toBuilder();
+    Struct.Builder nsBuilder = Struct.newBuilder();
+    Value existingVal = rootBuilder.getFieldsMap().get(namespace);
+    if (existingVal != null && existingVal.hasStructValue()) {
+      nsBuilder.mergeFrom(existingVal.getStructValue());
+    }
+    nsBuilder.putAllFields(fields);
+    rootBuilder.putFields(namespace, Value.newBuilder().setStructValue(nsBuilder.build()).build());
+    dynamicMetadata = rootBuilder.build();
+  }
+
   /** return the response for a given phase; will not return null but may throw */
   public ProcessingResponse getResponse(RequestCase phase) {
 
-    if (cancelled) {
-      return ProcessingResponse.newBuilder().setImmediateResponse(immediateResponse).build();
+    ProcessingResponse.Builder builder = ProcessingResponse.newBuilder();
+    if (dynamicMetadata != null) {
+      builder.setDynamicMetadata(dynamicMetadata);
     }
 
-    ProcessingResponse.Builder builder = ProcessingResponse.newBuilder();
+    if (cancelled) {
+      return builder.setImmediateResponse(immediateResponse).build();
+    }
+
     switch (phase) {
       case REQUEST_HEADERS:
         builder.setRequestHeaders(prepareHeadersResponse());

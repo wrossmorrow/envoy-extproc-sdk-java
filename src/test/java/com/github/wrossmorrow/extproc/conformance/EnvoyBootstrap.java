@@ -26,6 +26,7 @@ import build.buf.gen.envoy.config.route.v3.VirtualHost;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExtProcOverrides;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.MetadataOptions;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.extensions.filters.http.router.v3.Router;
 import build.buf.gen.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
@@ -40,6 +41,7 @@ import com.google.protobuf.UInt32Value;
 import com.google.protobuf.util.JsonFormat;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 
 /**
  * Builds the Envoy v3 bootstrap configuration used by the conformance harness, mirroring the Go
@@ -61,6 +63,9 @@ public class EnvoyBootstrap {
   public static final String EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME =
       "extproc_mode_override_allowlist";
   public static final String EXT_PROC_SEND_BODY_NO_WAIT_FILTER_NAME = "extproc_send_body_no_wait";
+  public static final String EXT_PROC_META_FIRST_FILTER_NAME = "extproc_meta_first";
+  public static final String EXT_PROC_META_SECOND_FILTER_NAME = "extproc_meta_second";
+  public static final String EXT_PROC_ATTRIBUTES_FILTER_NAME = "extproc_attributes";
 
   public static final String EXT_PROC_CLUSTER_DEFAULT = "extproc_service";
   public static final String EXT_PROC_CLUSTER_ABORT = "extproc_abort_service";
@@ -290,6 +295,19 @@ public class EnvoyBootstrap {
             streamedProcessingMode(),
             null,
             EXT_PROC_SEND_BODY_NO_WAIT_FILTER_NAME);
+    Route metadataChainRoute =
+        makeProfileRoute(
+            "/profile/metadata-chain",
+            disabledDefault,
+            null,
+            EXT_PROC_META_FIRST_FILTER_NAME,
+            EXT_PROC_META_SECOND_FILTER_NAME);
+    Route attributesRoute =
+        makeProfileRoute(
+                "/profile/attributes", disabledDefault, null, EXT_PROC_ATTRIBUTES_FILTER_NAME)
+            .toBuilder()
+            .setName("conformance_attributes_route")
+            .build();
 
     Route defaultRoute =
         Route.newBuilder()
@@ -334,6 +352,8 @@ public class EnvoyBootstrap {
                                     modeOverrideRespBufferedRoute,
                                     modeOverrideRoute,
                                     sendBodyNoWaitRoute,
+                                    metadataChainRoute,
+                                    attributesRoute,
                                     defaultRoute))
                             .build())
                     .build())
@@ -433,6 +453,44 @@ public class EnvoyBootstrap {
                         false,
                         true,
                         null),
+                    makeExtProcFilterWithMetadata(
+                        EXT_PROC_META_FIRST_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        MetadataOptions.newBuilder()
+                            .setReceivingNamespaces(
+                                MetadataOptions.MetadataNamespaces.newBuilder()
+                                    .addUntyped("com.conformance.extproc")
+                                    .build())
+                            .build(),
+                        null,
+                        null,
+                        bufferedProcessingMode()),
+                    makeExtProcFilterWithMetadata(
+                        EXT_PROC_META_SECOND_FILTER_NAME,
+                        EXT_PROC_CLUSTER_SECONDARY,
+                        MetadataOptions.newBuilder()
+                            .setForwardingNamespaces(
+                                MetadataOptions.MetadataNamespaces.newBuilder()
+                                    .addAllUntyped(
+                                        Arrays.asList(
+                                            "com.conformance.extproc", "com.conformance.unallowed"))
+                                    .build())
+                            .build(),
+                        null,
+                        null,
+                        bufferedProcessingMode()),
+                    makeExtProcFilterWithMetadata(
+                        EXT_PROC_ATTRIBUTES_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        null,
+                        Arrays.asList(
+                            "request.path",
+                            "request.url_path",
+                            "request.method",
+                            "request.protocol",
+                            "xds.route_name"),
+                        Collections.singletonList("response.code"),
+                        bufferedProcessingMode()),
                     HttpFilter.newBuilder()
                         .setName("envoy.filters.http.router")
                         .setTypedConfig(Any.pack(Router.getDefaultInstance()))
@@ -493,6 +551,22 @@ public class EnvoyBootstrap {
         .build();
   }
 
+  private static final class ExtProcFilterOptions {
+    String name;
+    String clusterName;
+    boolean failureModeAllow;
+    Duration messageTimeout;
+    boolean observability;
+    boolean disabledByDefault;
+    boolean allowModeOverride;
+    boolean sendBodyWithoutWaiting;
+    Iterable<ProcessingMode> allowedOverrideModes;
+    ProcessingMode mode;
+    MetadataOptions metadataOptions;
+    List<String> requestAttributes;
+    List<String> responseAttributes;
+  }
+
   private static HttpFilter makeExtProcFilter(
       String name,
       String clusterName,
@@ -548,31 +622,75 @@ public class EnvoyBootstrap {
       boolean allowModeOverride,
       boolean sendBodyWithoutWaiting,
       Iterable<ProcessingMode> allowedOverrideModes) {
+    ExtProcFilterOptions opts = new ExtProcFilterOptions();
+    opts.name = name;
+    opts.clusterName = clusterName;
+    opts.failureModeAllow = failureModeAllow;
+    opts.messageTimeout = messageTimeout;
+    opts.observability = observability;
+    opts.disabledByDefault = disabledByDefault;
+    opts.allowModeOverride = allowModeOverride;
+    opts.sendBodyWithoutWaiting = sendBodyWithoutWaiting;
+    opts.allowedOverrideModes = allowedOverrideModes;
+    opts.mode = mode;
+    return buildExtProcFilterWithOptions(opts);
+  }
+
+  private static HttpFilter makeExtProcFilterWithMetadata(
+      String name,
+      String clusterName,
+      MetadataOptions metadataOptions,
+      List<String> requestAttributes,
+      List<String> responseAttributes,
+      ProcessingMode mode) {
+    ExtProcFilterOptions opts = new ExtProcFilterOptions();
+    opts.name = name;
+    opts.clusterName = clusterName;
+    opts.messageTimeout = millis(5000);
+    opts.disabledByDefault = true;
+    opts.mode = mode;
+    opts.metadataOptions = metadataOptions;
+    opts.requestAttributes = requestAttributes;
+    opts.responseAttributes = responseAttributes;
+    return buildExtProcFilterWithOptions(opts);
+  }
+
+  private static HttpFilter buildExtProcFilterWithOptions(ExtProcFilterOptions opts) {
     ExternalProcessor.Builder cfg =
         ExternalProcessor.newBuilder()
             .setGrpcService(
                 GrpcService.newBuilder()
-                    .setEnvoyGrpc(GrpcService.EnvoyGrpc.newBuilder().setClusterName(clusterName))
+                    .setEnvoyGrpc(
+                        GrpcService.EnvoyGrpc.newBuilder().setClusterName(opts.clusterName))
                     .setTimeout(Duration.newBuilder().setSeconds(30).build())
                     .build())
-            .setFailureModeAllow(failureModeAllow)
-            .setObservabilityMode(observability)
-            .setMessageTimeout(messageTimeout)
+            .setFailureModeAllow(opts.failureModeAllow)
+            .setObservabilityMode(opts.observability)
+            .setMessageTimeout(opts.messageTimeout)
             .setMutationRules(
                 HeaderMutationRules.newBuilder().setAllowAllRouting(BoolValue.of(true)).build())
-            .setProcessingMode(mode);
-    if (allowModeOverride) {
+            .setProcessingMode(opts.mode);
+    if (opts.allowModeOverride) {
       cfg.setAllowModeOverride(true);
     }
-    if (sendBodyWithoutWaiting) {
+    if (opts.sendBodyWithoutWaiting) {
       cfg.setSendBodyWithoutWaitingForHeaderResponse(true);
     }
-    if (allowedOverrideModes != null) {
-      cfg.addAllAllowedOverrideModes(allowedOverrideModes);
+    if (opts.allowedOverrideModes != null) {
+      cfg.addAllAllowedOverrideModes(opts.allowedOverrideModes);
+    }
+    if (opts.metadataOptions != null) {
+      cfg.setMetadataOptions(opts.metadataOptions);
+    }
+    if (opts.requestAttributes != null && !opts.requestAttributes.isEmpty()) {
+      cfg.addAllRequestAttributes(opts.requestAttributes);
+    }
+    if (opts.responseAttributes != null && !opts.responseAttributes.isEmpty()) {
+      cfg.addAllResponseAttributes(opts.responseAttributes);
     }
     return HttpFilter.newBuilder()
-        .setName(name)
-        .setDisabled(disabledByDefault)
+        .setName(opts.name)
+        .setDisabled(opts.disabledByDefault)
         .setTypedConfig(Any.pack(cfg.build()))
         .build();
   }

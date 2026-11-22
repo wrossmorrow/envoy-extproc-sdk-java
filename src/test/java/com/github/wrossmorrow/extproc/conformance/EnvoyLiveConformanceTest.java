@@ -1247,4 +1247,162 @@ public class EnvoyLiveConformanceTest {
     assertTrue(defRespBodyNonEmpty.get());
     runner.assertNoProtocolErrors();
   }
+
+  @Test
+  void dynamic_metadata_and_attributes(TestInfo info) throws Exception {
+    String id = info.getTestMethod().get().getName();
+
+    // 1. emit_allowlisted_and_forward_across_chained_filters
+    String chainCaseId = id + "-chain";
+    final AtomicBoolean reqHdrsChecked = new AtomicBoolean(false);
+    final AtomicBoolean reqBodyChecked = new AtomicBoolean(false);
+    final AtomicBoolean respHdrsChecked = new AtomicBoolean(false);
+    final List<String> chainErrors = Collections.synchronizedList(new ArrayList<String>());
+
+    defaultProcessor.register(
+        chainCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            Map<String, Object> allowed = new LinkedHashMap<String, Object>();
+            allowed.put("tenant", "acme");
+            allowed.put("score", 42);
+            ctx.setDynamicMetadataNamespace("com.conformance.extproc", allowed);
+            ctx.setDynamicMetadata("com.conformance.unallowed", "secret", "dropped");
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            ctx.setDynamicMetadata("com.conformance.extproc", "body_checked", true);
+          }
+        });
+    secondaryProcessor.register(
+        chainCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            reqHdrsChecked.set(true);
+            Map<String, Object> allowed = ctx.getMetadata().get("com.conformance.extproc");
+            if (allowed == null
+                || !"acme".equals(allowed.get("tenant"))
+                || !Double.valueOf(42.0).equals(allowed.get("score"))) {
+              chainErrors.add("second filter RequestHeaders com.conformance.extproc=" + allowed);
+            }
+            if (ctx.getMetadata().containsKey("com.conformance.unallowed")) {
+              chainErrors.add(
+                  "second filter RequestHeaders received unallowlisted namespace: "
+                      + ctx.getMetadata().get("com.conformance.unallowed"));
+            }
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            reqBodyChecked.set(true);
+            Map<String, Object> allowed = ctx.getMetadata().get("com.conformance.extproc");
+            if (allowed == null
+                || !Boolean.TRUE.equals(allowed.get("body_checked"))
+                || !"acme".equals(allowed.get("tenant"))) {
+              chainErrors.add("second filter RequestBody com.conformance.extproc=" + allowed);
+            }
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            respHdrsChecked.set(true);
+            Map<String, Object> allowed = ctx.getMetadata().get("com.conformance.extproc");
+            if (allowed == null || !Boolean.TRUE.equals(allowed.get("body_checked"))) {
+              chainErrors.add("second filter ResponseHeaders com.conformance.extproc=" + allowed);
+            }
+            ctx.addHeader("x-meta-verified", "ok");
+          }
+        });
+
+    EnvoyHttpClient.Response chainResp =
+        client.send("POST", "/profile/metadata-chain/check", caseHeaders(chainCaseId), "meta-body");
+    assertEquals(200, chainResp.status, chainResp.body);
+    assertTrue(chainErrors.isEmpty(), "chain errors: " + chainErrors);
+    assertTrue(reqHdrsChecked.get());
+    assertTrue(reqBodyChecked.get());
+    assertTrue(respHdrsChecked.get());
+    assertEquals("ok", chainResp.headers.get("x-meta-verified"));
+    runner.assertNoProtocolErrors();
+
+    // 2. immediate_response_emits_dynamic_metadata
+    String immCaseId = id + "-immediate";
+    defaultProcessor.register(
+        immCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.setDynamicMetadata("com.conformance.extproc", "denied_by", "policy");
+            ctx.cancelRequest(403, Collections.singletonMap("x-denied", "1"), "denied");
+          }
+        });
+    EnvoyHttpClient.Response immResp =
+        client.send("GET", "/profile/metadata-chain/deny", caseHeaders(immCaseId), null);
+    assertEquals(403, immResp.status, immResp.body);
+    assertEquals("1", immResp.headers.get("x-denied"));
+    assertEquals("denied", immResp.body);
+    runner.assertNoProtocolErrors();
+
+    // 3. cel_request_and_response_attributes_persist_across_phases
+    String attrCaseId = id + "-attrs";
+    final Map<String, Map<String, Object>> snapshots =
+        Collections.synchronizedMap(new LinkedHashMap<String, Map<String, Object>>());
+    defaultProcessor.register(
+        attrCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          private void snapshot(String phaseName, RequestContext ctx) {
+            snapshots.put(phaseName, new LinkedHashMap<String, Object>(ctx.getAttributes()));
+          }
+
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            snapshot("req_headers", ctx);
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            snapshot("req_body", ctx);
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            snapshot("resp_headers", ctx);
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            snapshot("resp_body", ctx);
+          }
+        });
+
+    Map<String, String> attrHeaders = caseHeaders(attrCaseId);
+    attrHeaders.put("x-upstream-status", "201");
+    EnvoyHttpClient.Response attrResp =
+        client.send("POST", "/profile/attributes/items?filter=active", attrHeaders, "attr-probe");
+    assertEquals(201, attrResp.status, attrResp.body);
+
+    Map<String, Object> wantReqAttrs = new LinkedHashMap<String, Object>();
+    wantReqAttrs.put("request.path", "/profile/attributes/items?filter=active");
+    wantReqAttrs.put("request.url_path", "/profile/attributes/items");
+    wantReqAttrs.put("request.method", "POST");
+    wantReqAttrs.put("request.protocol", "HTTP/1.1");
+    wantReqAttrs.put("xds.route_name", "conformance_attributes_route");
+
+    for (String phase : Arrays.asList("req_headers", "req_body", "resp_headers", "resp_body")) {
+      Map<String, Object> attrs = snapshots.get(phase);
+      assertNotNull(attrs, "missing attributes snapshot for " + phase);
+      for (Map.Entry<String, Object> entry : wantReqAttrs.entrySet()) {
+        assertEquals(
+            entry.getValue(), attrs.get(entry.getKey()), phase + " attr " + entry.getKey());
+      }
+    }
+    for (String phase : Arrays.asList("resp_headers", "resp_body")) {
+      Map<String, Object> attrs = snapshots.get(phase);
+      assertNotNull(attrs, "missing response attributes snapshot for " + phase);
+      assertEquals(Double.valueOf(201.0), attrs.get("response.code"), phase + " response.code");
+    }
+    runner.assertNoProtocolErrors();
+  }
 }
