@@ -294,6 +294,12 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     if (request.hasProtocolConfig()) {
       ctx.protocolConfig = ProtocolConfig.fromProto(request.getProtocolConfig());
     }
+    if (request.hasMetadataContext()) {
+      ctx.mergeMetadataContext(request.getMetadataContext());
+    }
+    if (request.getAttributesCount() > 0) {
+      ctx.mergeAttributes(request.getAttributesMap());
+    }
     switch (phase) {
       case REQUEST_HEADERS:
         HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();

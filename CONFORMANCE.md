@@ -52,7 +52,7 @@ Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
 | observability_mode | Spec Extensions | protocol_gap | skipped | skipped | skipped | skipped |
 | protocol_config | Spec Extensions | supported | pass | pass | pass | pass |
 | mode_override | Spec Extensions | supported | pass | pass | pass | pass |
-| dynamic_metadata_and_attributes | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| dynamic_metadata_and_attributes | Spec Extensions | supported | pass | pass | pass | pass |
 | override_message_timeout | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
 | continue_and_replace_and_full_duplex | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
 

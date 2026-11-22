@@ -92,6 +92,8 @@ The `RequestContext` is initialized with some request data when request headers 
 * a flag-method `streamComplete` within header, body, and trailer phases to know when phase data is complete
 * a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages)
 * `getProtocolConfig()` (`ProtocolConfig`) reflecting `ProcessingRequest.protocol_config` sent by Envoy on the first message of the stream (`requestBodyMode`, `responseBodyMode`, and `sendBodyWithoutWaitingForHeaderResponse`), retained across all phases of that stream
+* `getMetadata()` (`Map<String, Map<String, Object>>`) and `getTypedMetadata()` (`Map<String, Any>`) holding dynamic metadata forwarded by Envoy (`metadata_options.forwarding_namespaces`), merged across phases of the stream
+* `getAttributes()` (`Map<String, Object>`) holding evaluated Envoy/CEL `request_attributes` and `response_attributes` flattened by attribute name (e.g. `request.protocol`, `xds.route_name`, `response.code`), merged across phases of the stream
 
 This context is carried through every request phase, and passed to the interface methods. In particular, your implementation can store data in memory related to specific requests keyed on the request ID or via another strategy of your choosing. You can supply your own ID, which can be stored in the context, if that suits your needs better, using `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 
@@ -122,7 +124,24 @@ ctx.overrideMode(
         .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
         .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
 ```
-You can also call `ctx.skipRemainingPhases()` to skip all subsequent phases on the stream, or `ctx.clearModeOverride()` to clear a pending override before returning. `mode_override` is only attached to header phase responses when the request is not cancelled, and is reset after each phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`NONE` is `0`), so when calling `overrideMode` from `processRequestHeaders`, either set both `requestBodyMode` and `responseBodyMode` explicitly or start from `ctx.defaultModeOverride()` (pre-populated from `ctx.getProtocolConfig()`). 
+You can also call `ctx.skipRemainingPhases()` to skip all subsequent phases on the stream, or `ctx.clearModeOverride()` to clear a pending override before returning. `mode_override` is only attached to header phase responses when the request is not cancelled, and is reset after each phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`NONE` is `0`), so when calling `overrideMode` from `processRequestHeaders`, either set both `requestBodyMode` and `responseBodyMode` explicitly or start from `ctx.defaultModeOverride()` (pre-populated from `ctx.getProtocolConfig()`).
+
+### Dynamic Metadata & Attributes
+
+When Envoy configures `metadata_options.forwarding_namespaces`, `request_attributes`, or `response_attributes` on the `ext_proc` filter, Envoy includes those values on incoming `ProcessingRequest` messages and the SDK merges them across all phases of the stream onto:
+* `ctx.getMetadata()` (`Map<String, Map<String, Object>>`) — untyped filter metadata keyed by namespace
+* `ctx.getTypedMetadata()` (`Map<String, Any>`) — typed filter metadata keyed by namespace
+* `ctx.getAttributes()` (`Map<String, Object>`) — evaluated CEL attributes flattened by attribute name
+
+To emit metadata back to downstream Envoy filters or access logs (also attached to `cancelRequest` immediate responses), set it on the current phase:
+```java
+ctx.setDynamicMetadata("com.acme.extproc", "tenant", "acme");
+Map<String, Object> fields = new LinkedHashMap<String, Object>();
+fields.put("risk_score", 0.1);
+fields.put("allowed", true);
+ctx.setDynamicMetadataNamespace("com.acme.extproc", fields);
+```
+Use `ctx.clearDynamicMetadata()` to discard pending outbound metadata for the current phase. Note that Envoy ignores returned namespaces unless they are listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` stores numeric values as `Double` when read back from `ctx.getMetadata()` or `ctx.getAttributes()`. 
 
 ### Modifying Headers
 
