@@ -133,10 +133,12 @@ public class EnvoyRunner {
             "127.0.0.1::18080",
             "-p",
             "127.0.0.1::19901",
+            "-v",
+            bootstrapPath + ":/etc/envoy/envoy.yaml",
             image,
             "envoy",
             "--config-yaml",
-            bootstrapPath,
+            "/etc/envoy/envoy.yaml",
             "--log-level",
             "warn",
             "--concurrency",
@@ -226,7 +228,7 @@ public class EnvoyRunner {
 
   private static int getStatus(String baseUrl, String path) {
     try {
-      URL url = new URL(baseUrl + path);
+      URL url = new URL("http://" + baseUrl + path);
       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
       conn.setConnectTimeout(2000);
       conn.setReadTimeout(2000);
@@ -241,7 +243,7 @@ public class EnvoyRunner {
 
   private String get(String baseUrl, String path) {
     try {
-      URL url = new URL(baseUrl + path);
+      URL url = new URL("http://" + baseUrl + path);
       HttpURLConnection conn = (HttpURLConnection) url.openConnection();
       conn.setConnectTimeout(2000);
       conn.setReadTimeout(2000);
@@ -301,7 +303,10 @@ public class EnvoyRunner {
   public void assertNoProtocolErrors() {
     Map<String, Long> stats = extProcStats();
     for (Map.Entry<String, Long> entry : stats.entrySet()) {
-      if (entry.getKey() != null && entry.getKey().endsWith(".spurious_msgs_received")) {
+      if (entry.getKey() != null
+          && entry.getKey().endsWith(".spurious_msgs_received")
+          && entry.getValue() != null
+          && entry.getValue() > 0) {
         throw new IllegalStateException("envoy reported spurious messages for " + entry.getKey());
       }
     }

@@ -93,21 +93,19 @@ public class EnvoyBootstrap {
     return Listener.newBuilder()
         .setName(CONFORMANCE_LISTENER_NAME)
         .setAddress(envoyAddress(params.listenerPort))
-        .addAllFilterChains(
-            Collections.singletonList(
-                FilterChain.newBuilder()
-                    .addFilters(
-                        Filter.newBuilder()
-                            .setName(EXT_PROC_FILTER_NAME)
-                            .setTypedConfig(
-                                Any.newBuilder()
-                                    .setTypeUrl(
-                                        "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor")
-                                    .setValue(
-                                        ByteString.copyFrom(extProcTypedConfig().toByteArray()))
-                                    .build())
-                            .build())
-                    .build()))
+        .setDefaultFilterChain(
+            FilterChain.newBuilder()
+                .addFilters(
+                    Filter.newBuilder()
+                        .setName(EXT_PROC_FILTER_NAME)
+                        .setTypedConfig(
+                            Any.newBuilder()
+                                .setTypeUrl(
+                                    "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor")
+                                .setValue(ByteString.copyFrom(extProcTypedConfig().toByteArray()))
+                                .build())
+                        .build())
+                .build())
         .build();
   }
 
@@ -162,6 +160,8 @@ public class EnvoyBootstrap {
     builder.setConnectTimeout(Duration.newBuilder().setSeconds(2).build());
     builder.setLbPolicy(LbPolicy.ROUND_ROBIN);
     builder.setType(build.buf.gen.envoy.config.cluster.v3.Cluster.DiscoveryType.STATIC);
+    builder.setHttp2ProtocolOptions(
+        build.buf.gen.envoy.config.core.v3.Http2ProtocolOptions.getDefaultInstance());
     builder.setLoadAssignment(
         ClusterLoadAssignment.newBuilder()
             .setClusterName(name)
@@ -181,7 +181,7 @@ public class EnvoyBootstrap {
     return build.buf.gen.envoy.config.core.v3.Address.newBuilder()
         .setSocketAddress(
             build.buf.gen.envoy.config.core.v3.SocketAddress.newBuilder()
-                .setAddress("127.0.0.1")
+                .setAddress("0.0.0.0")
                 .setPortValue(port)
                 .build())
         .build();
