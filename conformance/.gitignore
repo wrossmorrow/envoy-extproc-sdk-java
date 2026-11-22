@@ -1,2 +1,3 @@
 results-*.log
+results/
 conformance-summary.json

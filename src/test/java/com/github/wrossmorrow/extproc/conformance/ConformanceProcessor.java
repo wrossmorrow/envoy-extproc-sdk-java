@@ -114,11 +114,7 @@ public class ConformanceProcessor implements RequestProcessor {
     if (handler == null) {
       return;
     }
-    try {
-      handler.requestHeaders(ctx, headers);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.REQUEST_HEADERS, e);
-    }
+    handler.requestHeaders(ctx, headers);
   }
 
   @Override
@@ -127,11 +123,7 @@ public class ConformanceProcessor implements RequestProcessor {
     if (handler == null) {
       return;
     }
-    try {
-      handler.requestBody(ctx, body);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.REQUEST_BODY, e);
-    }
+    handler.requestBody(ctx, body);
   }
 
   @Override
@@ -140,24 +132,16 @@ public class ConformanceProcessor implements RequestProcessor {
     if (handler == null) {
       return;
     }
-    try {
-      handler.requestTrailers(ctx, trailers);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.REQUEST_TRAILERS, e);
-    }
+    handler.requestTrailers(ctx, trailers);
   }
 
   @Override
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
-    CaseHandler handler = cases.get(resolveCaseId(ctx, null));
+    CaseHandler handler = cases.get(resolveCaseId(ctx, headers));
     if (handler == null) {
       return;
     }
-    try {
-      handler.responseHeaders(ctx, headers);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.RESPONSE_HEADERS, e);
-    }
+    handler.responseHeaders(ctx, headers);
   }
 
   @Override
@@ -166,11 +150,7 @@ public class ConformanceProcessor implements RequestProcessor {
     if (handler == null) {
       return;
     }
-    try {
-      handler.responseBody(ctx, body);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.RESPONSE_BODY, e);
-    }
+    handler.responseBody(ctx, body);
   }
 
   @Override
@@ -179,10 +159,6 @@ public class ConformanceProcessor implements RequestProcessor {
     if (handler == null) {
       return;
     }
-    try {
-      handler.responseTrailers(ctx, trailers);
-    } catch (Exception e) {
-      errorHandler(ctx, RequestCase.RESPONSE_TRAILERS, e);
-    }
+    handler.responseTrailers(ctx, trailers);
   }
 }

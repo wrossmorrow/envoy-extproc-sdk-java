@@ -125,21 +125,50 @@ public class ConformanceReport {
     if (run == null) {
       return "not_run";
     }
-    String outcome = run.outcomes.getOrDefault("TestEnvoyConformance/" + feature.id, "not_run");
+    if (feature.tests == null || feature.tests.isEmpty()) {
+      String outcome = run.outcomes.getOrDefault("TestEnvoyConformance/" + feature.id, "not_run");
+      return mapOutcome(outcome);
+    }
+    boolean anyPass = false;
+    boolean anySkip = false;
+    boolean anyNotRun = false;
+    for (String testName : feature.tests) {
+      String mapped = mapOutcome(run.outcomes.getOrDefault(testName, "not_run"));
+      if ("fail".equals(mapped)) {
+        return "fail";
+      } else if ("pass".equals(mapped)) {
+        anyPass = true;
+      } else if ("skipped".equals(mapped)) {
+        anySkip = true;
+      } else if ("not_run".equals(mapped)) {
+        anyNotRun = true;
+      } else {
+        return mapped;
+      }
+    }
+    if (anyPass && !anyNotRun) {
+      return "pass";
+    }
+    if (anyPass) {
+      return "partial";
+    }
+    if (anySkip && !anyNotRun) {
+      return "skipped";
+    }
+    return "not_run";
+  }
+
+  private static String mapOutcome(String outcome) {
     if ("pass".equalsIgnoreCase(outcome)) {
       return "pass";
     }
-    if ("fail".equalsIgnoreCase(outcome)) {
+    if ("fail".equalsIgnoreCase(outcome) || "error".equalsIgnoreCase(outcome)) {
       return "fail";
     }
     if ("skip".equalsIgnoreCase(outcome)) {
       return "skipped";
     }
-    if ("error".equalsIgnoreCase(outcome)) {
-      return "fail";
-    }
     if (outcome != null && !outcome.isEmpty() && !"not_run".equalsIgnoreCase(outcome)) {
-      // unknown outcome vocabulary entries surface as gaps rather than failures
       return "known_gap";
     }
     return "not_run";
@@ -148,7 +177,6 @@ public class ConformanceReport {
   public static String renderMarkdown(SummaryReport report) {
     StringBuilder sb = new StringBuilder();
     sb.append(CONFORMANCE_MATRIX_START_MARKER).append('\n');
-    sb.append(CONFORMANCE_MATRIX_END_MARKER).append('\n');
     sb.append("# Envoy conformance matrix\n\n");
     sb.append("Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.\n\n");
     sb.append("| Feature | Category | SDK status");
@@ -156,9 +184,9 @@ public class ConformanceReport {
       sb.append(" | ").append(version);
     }
     sb.append(" |\n");
-    sb.append("| --- | --- | --- |");
+    sb.append("| --- | --- | ---");
     for (String version : report.versions) {
-      sb.append(" --- |");
+      sb.append(" | ---");
     }
     sb.append(" |\n");
     for (FeatureSummary feature : report.features) {
@@ -177,6 +205,7 @@ public class ConformanceReport {
       sb.append(row);
     }
     sb.append("\n");
+    sb.append(CONFORMANCE_MATRIX_END_MARKER);
     return sb.toString();
   }
 

@@ -4,6 +4,12 @@ import build.buf.gen.envoy.config.bootstrap.v3.Admin;
 import build.buf.gen.envoy.config.bootstrap.v3.Bootstrap;
 import build.buf.gen.envoy.config.cluster.v3.Cluster;
 import build.buf.gen.envoy.config.cluster.v3.Cluster.LbPolicy;
+import build.buf.gen.envoy.config.common.mutation_rules.v3.HeaderMutationRules;
+import build.buf.gen.envoy.config.core.v3.Address;
+import build.buf.gen.envoy.config.core.v3.GrpcService;
+import build.buf.gen.envoy.config.core.v3.Http1ProtocolOptions;
+import build.buf.gen.envoy.config.core.v3.Http2ProtocolOptions;
+import build.buf.gen.envoy.config.core.v3.SocketAddress;
 import build.buf.gen.envoy.config.endpoint.v3.ClusterLoadAssignment;
 import build.buf.gen.envoy.config.endpoint.v3.Endpoint;
 import build.buf.gen.envoy.config.endpoint.v3.LbEndpoint;
@@ -11,30 +17,47 @@ import build.buf.gen.envoy.config.endpoint.v3.LocalityLbEndpoints;
 import build.buf.gen.envoy.config.listener.v3.Filter;
 import build.buf.gen.envoy.config.listener.v3.FilterChain;
 import build.buf.gen.envoy.config.listener.v3.Listener;
+import build.buf.gen.envoy.config.route.v3.HeaderMatcher;
 import build.buf.gen.envoy.config.route.v3.Route;
 import build.buf.gen.envoy.config.route.v3.RouteAction;
 import build.buf.gen.envoy.config.route.v3.RouteConfiguration;
 import build.buf.gen.envoy.config.route.v3.RouteMatch;
 import build.buf.gen.envoy.config.route.v3.VirtualHost;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExtProcOverrides;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExtProcPerRoute;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.extensions.filters.http.router.v3.Router;
 import build.buf.gen.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
 import build.buf.gen.envoy.extensions.filters.network.http_connection_manager.v3.HttpFilter;
+import build.buf.gen.envoy.extensions.upstreams.http.v3.HttpProtocolOptions;
+import build.buf.gen.envoy.type.matcher.v3.StringMatcher;
 import com.google.protobuf.Any;
+import com.google.protobuf.BoolValue;
 import com.google.protobuf.Duration;
+import com.google.protobuf.TypeRegistry;
+import com.google.protobuf.UInt32Value;
 import com.google.protobuf.util.JsonFormat;
 import java.util.Arrays;
 import java.util.Collections;
 
 /**
  * Builds the Envoy v3 bootstrap configuration used by the conformance harness, mirroring the Go
- * SDK's {@code conformance/bootstrap.go}: one HTTP listener, dual upstream/extproc clusters, and
- * per-route processing modes plus failure/timeout/chaining/observability profiles.
+ * SDK's {@code conformance/bootstrap.go}: one HTTP/1.1 + h2c listener, dual upstream/extproc
+ * clusters, and per-route processing modes plus failure/timeout/chaining/observability profiles.
  */
 public class EnvoyBootstrap {
 
   public static final String EXT_PROC_FILTER_NAME = "envoy.filters.http.ext_proc";
+  public static final String EXT_PROC_SHORT_TIMEOUT_FAIL_CLOSED_NAME =
+      "extproc_short_timeout_fail_closed";
+  public static final String EXT_PROC_SHORT_TIMEOUT_FAIL_OPEN_NAME =
+      "extproc_short_timeout_fail_open";
+  public static final String EXT_PROC_ABORT_FILTER_NAME = "extproc_abort_server";
+  public static final String EXT_PROC_CHAIN_FIRST_FILTER_NAME = "extproc_chain_first";
+  public static final String EXT_PROC_CHAIN_SECOND_FILTER_NAME = "extproc_chain_second";
+  public static final String EXT_PROC_OBSERVABILITY_FILTER_NAME = "extproc_observability";
+
   public static final String EXT_PROC_CLUSTER_DEFAULT = "extproc_service";
   public static final String EXT_PROC_CLUSTER_ABORT = "extproc_abort_service";
   public static final String EXT_PROC_CLUSTER_SECONDARY = "extproc_secondary_service";
@@ -57,38 +80,65 @@ public class EnvoyBootstrap {
   private EnvoyBootstrap() {}
 
   public static Bootstrap buildBootstrap(BootstrapParams params) {
-    Bootstrap.Builder builder = Bootstrap.newBuilder();
+    String host =
+        params.upstreamHost == null || params.upstreamHost.isEmpty()
+            ? "127.0.0.1"
+            : params.upstreamHost;
+    int abortPort = params.abortExtProcPort == 0 ? params.extProcPort : params.abortExtProcPort;
+    int secondaryPort =
+        params.secondaryExtProcPort == 0 ? params.extProcPort : params.secondaryExtProcPort;
+
+    HttpProtocolOptions downstreamProtoOpts =
+        HttpProtocolOptions.newBuilder()
+            .setUseDownstreamProtocolConfig(
+                HttpProtocolOptions.UseDownstreamHttpConfig.newBuilder()
+                    .setHttpProtocolOptions(
+                        Http1ProtocolOptions.newBuilder().setEnableTrailers(true).build())
+                    .setHttp2ProtocolOptions(Http2ProtocolOptions.getDefaultInstance())
+                    .build())
+            .build();
+
+    HttpProtocolOptions grpcProtoOpts =
+        HttpProtocolOptions.newBuilder()
+            .setExplicitHttpConfig(
+                HttpProtocolOptions.ExplicitHttpConfig.newBuilder()
+                    .setHttp2ProtocolOptions(Http2ProtocolOptions.getDefaultInstance())
+                    .build())
+            .build();
+
     Bootstrap.StaticResources staticResources =
         Bootstrap.StaticResources.newBuilder()
             .addAllListeners(Collections.singletonList(httpListener(params)))
             .addAllClusters(
                 Arrays.asList(
-                    upstreamCluster(
-                        UPSTREAM_PRIMARY, params.upstreamHost, params.primaryUpstreamPort),
-                    upstreamCluster(
-                        UPSTREAM_SECONDARY, params.upstreamHost, params.secondaryUpstreamPort),
-                    grpcUpstreamCluster(
-                        EXT_PROC_CLUSTER_DEFAULT, params.upstreamHost, params.extProcPort),
-                    grpcUpstreamCluster(
-                        EXT_PROC_CLUSTER_ABORT, params.upstreamHost, params.abortExtProcPort),
-                    grpcUpstreamCluster(
-                        EXT_PROC_CLUSTER_SECONDARY,
-                        params.upstreamHost,
-                        params.secondaryExtProcPort)))
+                    makeCluster(
+                        UPSTREAM_PRIMARY, host, params.primaryUpstreamPort, downstreamProtoOpts),
+                    makeCluster(
+                        UPSTREAM_SECONDARY,
+                        host,
+                        params.secondaryUpstreamPort,
+                        downstreamProtoOpts),
+                    makeCluster(EXT_PROC_CLUSTER_DEFAULT, host, params.extProcPort, grpcProtoOpts),
+                    makeCluster(EXT_PROC_CLUSTER_ABORT, host, abortPort, grpcProtoOpts),
+                    makeCluster(EXT_PROC_CLUSTER_SECONDARY, host, secondaryPort, grpcProtoOpts)))
             .build();
-    builder.setStaticResources(staticResources);
-    builder.setAdmin(Admin.newBuilder().setAddress(envoyAddress(params.adminPort)).build());
-    return builder.build();
+
+    return Bootstrap.newBuilder()
+        .setStaticResources(staticResources)
+        .setAdmin(Admin.newBuilder().setAddress(envoyAddress(params.adminPort)).build())
+        .build();
   }
 
   public static String bootstrapJson(BootstrapParams params) {
     Bootstrap bootstrap = buildBootstrap(params);
-    com.google.protobuf.TypeRegistry.Builder registryBuilder =
-        com.google.protobuf.TypeRegistry.newBuilder();
-    registryBuilder.add(HttpConnectionManager.getDescriptor());
-    registryBuilder.add(ExternalProcessor.getDescriptor());
-    registryBuilder.add(Router.getDescriptor());
-    com.google.protobuf.TypeRegistry registry = registryBuilder.build();
+    TypeRegistry registry =
+        TypeRegistry.newBuilder()
+            .add(HttpConnectionManager.getDescriptor())
+            .add(ExternalProcessor.getDescriptor())
+            .add(ExtProcPerRoute.getDescriptor())
+            .add(Router.getDescriptor())
+            .add(HttpProtocolOptions.getDescriptor())
+            .build();
     JsonFormat.Printer printer = JsonFormat.printer().usingTypeRegistry(registry);
     try {
       return printer.print(bootstrap);
@@ -98,38 +148,226 @@ public class EnvoyBootstrap {
   }
 
   private static Listener httpListener(BootstrapParams params) {
+    Any disabledDefault = Any.pack(ExtProcPerRoute.newBuilder().setDisabled(true).build());
+
+    Route secondaryRoute =
+        Route.newBuilder()
+            .setMatch(
+                RouteMatch.newBuilder()
+                    .setPrefix("/")
+                    .addHeaders(
+                        HeaderMatcher.newBuilder()
+                            .setName(":authority")
+                            .setStringMatch(
+                                StringMatcher.newBuilder().setExact("upstream-secondary").build())
+                            .build())
+                    .build())
+            .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_SECONDARY).build())
+            .build();
+
+    Route disabledRoute =
+        Route.newBuilder()
+            .setMatch(RouteMatch.newBuilder().setPrefix("/mode/disabled").build())
+            .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_PRIMARY).build())
+            .putTypedPerFilterConfig(EXT_PROC_FILTER_NAME, disabledDefault)
+            .build();
+
+    Route bufferedPartialRoute =
+        makeModeRoute(
+                "/mode/buffered-partial",
+                ProcessingMode.newBuilder()
+                    .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                    .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                    .setRequestBodyMode(ProcessingMode.BodySendMode.BUFFERED_PARTIAL)
+                    .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED_PARTIAL)
+                    .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                    .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                    .build())
+            .toBuilder()
+            .setPerRequestBufferLimitBytes(UInt32Value.of(64))
+            .build();
+
+    Route bufferedRoute = makeModeRoute("/mode/buffered", bufferedProcessingMode());
+    Route streamedRoute =
+        makeModeRoute(
+            "/mode/streamed",
+            ProcessingMode.newBuilder()
+                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setRequestBodyMode(ProcessingMode.BodySendMode.STREAMED)
+                .setResponseBodyMode(ProcessingMode.BodySendMode.STREAMED)
+                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .build());
+    Route trailersRoute =
+        makeModeRoute(
+            "/mode/trailers",
+            ProcessingMode.newBuilder()
+                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setRequestBodyMode(ProcessingMode.BodySendMode.STREAMED)
+                .setResponseBodyMode(ProcessingMode.BodySendMode.STREAMED)
+                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SEND)
+                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SEND)
+                .build());
+    Route noneRoute =
+        makeModeRoute(
+            "/mode/none",
+            ProcessingMode.newBuilder()
+                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setRequestBodyMode(ProcessingMode.BodySendMode.NONE)
+                .setResponseBodyMode(ProcessingMode.BodySendMode.NONE)
+                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .build());
+    Route skipReqHeadersRoute =
+        makeModeRoute(
+            "/mode/skip-req-headers",
+            ProcessingMode.newBuilder()
+                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SKIP)
+                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setRequestBodyMode(ProcessingMode.BodySendMode.NONE)
+                .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED)
+                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .build());
+
+    Route timeoutClosedRoute =
+        makeProfileRoute(
+            "/profile/timeout-fail-closed",
+            disabledDefault,
+            null,
+            EXT_PROC_SHORT_TIMEOUT_FAIL_CLOSED_NAME);
+    Route timeoutOpenRoute =
+        makeProfileRoute(
+            "/profile/timeout-fail-open",
+            disabledDefault,
+            null,
+            EXT_PROC_SHORT_TIMEOUT_FAIL_OPEN_NAME);
+    Route abortClosedRoute =
+        makeProfileRoute(
+            "/profile/abort-fail-closed", disabledDefault, null, EXT_PROC_ABORT_FILTER_NAME);
+    Route abortOpenRoute =
+        makeProfileRoute(
+            "/profile/abort-fail-open", disabledDefault, Boolean.TRUE, EXT_PROC_ABORT_FILTER_NAME);
+    Route chainedRoute =
+        makeProfileRoute(
+            "/profile/chained",
+            disabledDefault,
+            null,
+            EXT_PROC_CHAIN_FIRST_FILTER_NAME,
+            EXT_PROC_CHAIN_SECOND_FILTER_NAME);
+    Route observabilityRoute =
+        makeProfileRoute(
+            "/profile/observability", disabledDefault, null, EXT_PROC_OBSERVABILITY_FILTER_NAME);
+
+    Route defaultRoute =
+        Route.newBuilder()
+            .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
+            .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_PRIMARY).build())
+            .build();
+
     HttpConnectionManager hcm =
         HttpConnectionManager.newBuilder()
-            .setStatPrefix("ingress_http")
+            .setStatPrefix("conformance_http")
             .setCodecType(HttpConnectionManager.CodecType.AUTO)
+            .setHttpProtocolOptions(
+                Http1ProtocolOptions.newBuilder().setEnableTrailers(true).build())
+            .setHttp2ProtocolOptions(
+                Http2ProtocolOptions.newBuilder()
+                    .setMaxConcurrentStreams(UInt32Value.of(1024))
+                    .build())
             .setRouteConfig(
                 RouteConfiguration.newBuilder()
                     .setName(CONFORMANCE_ROUTES_NAME)
                     .addVirtualHosts(
                         VirtualHost.newBuilder()
-                            .setName("conformance")
+                            .setName("conformance_vhost")
                             .addDomains("*")
-                            .addRoutes(
-                                Route.newBuilder()
-                                    .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
-                                    .setRoute(
-                                        RouteAction.newBuilder()
-                                            .setCluster(UPSTREAM_PRIMARY)
-                                            .build())
-                                    .build())
+                            .addAllRoutes(
+                                Arrays.asList(
+                                    secondaryRoute,
+                                    disabledRoute,
+                                    bufferedPartialRoute,
+                                    bufferedRoute,
+                                    streamedRoute,
+                                    trailersRoute,
+                                    noneRoute,
+                                    skipReqHeadersRoute,
+                                    timeoutClosedRoute,
+                                    timeoutOpenRoute,
+                                    abortClosedRoute,
+                                    abortOpenRoute,
+                                    chainedRoute,
+                                    observabilityRoute,
+                                    defaultRoute))
                             .build())
                     .build())
-            .addHttpFilters(
-                HttpFilter.newBuilder()
-                    .setName(EXT_PROC_FILTER_NAME)
-                    .setTypedConfig(Any.pack(extProcTypedConfig()))
-                    .build())
-            .addHttpFilters(
-                HttpFilter.newBuilder()
-                    .setName("envoy.filters.http.router")
-                    .setTypedConfig(Any.pack(Router.getDefaultInstance()))
-                    .build())
+            .addAllHttpFilters(
+                Arrays.asList(
+                    makeExtProcFilter(
+                        EXT_PROC_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(5000),
+                        false,
+                        false,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_SHORT_TIMEOUT_FAIL_CLOSED_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(150),
+                        false,
+                        true,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_SHORT_TIMEOUT_FAIL_OPEN_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        true,
+                        millis(150),
+                        false,
+                        true,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_ABORT_FILTER_NAME,
+                        EXT_PROC_CLUSTER_ABORT,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_CHAIN_FIRST_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_CHAIN_SECOND_FILTER_NAME,
+                        EXT_PROC_CLUSTER_SECONDARY,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_OBSERVABILITY_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        true,
+                        millis(5000),
+                        true,
+                        true,
+                        bufferedProcessingMode()),
+                    HttpFilter.newBuilder()
+                        .setName("envoy.filters.http.router")
+                        .setTypedConfig(Any.pack(Router.getDefaultInstance()))
+                        .build()))
             .build();
+
     return Listener.newBuilder()
         .setName(CONFORMANCE_LISTENER_NAME)
         .setAddress(envoyAddress(params.listenerPort))
@@ -144,94 +382,117 @@ public class EnvoyBootstrap {
         .build();
   }
 
-  private static ExternalProcessor extProcTypedConfig() {
-    ExternalProcessor.Builder builder = ExternalProcessor.newBuilder();
-    builder.setGrpcService(
-        build.buf.gen.envoy.config.core.v3.GrpcService.newBuilder()
-            .setEnvoyGrpc(
-                build.buf.gen.envoy.config.core.v3.GrpcService.EnvoyGrpc.newBuilder()
-                    .setClusterName(EXT_PROC_CLUSTER_DEFAULT)
-                    .build())
-            .build());
-    builder.setFailureModeAllow(false);
-    builder.setMessageTimeout(Duration.newBuilder().setSeconds(5).build());
-    builder.setObservabilityMode(false);
-    builder.setDisableClearRouteCache(false);
-    builder.setProcessingMode(
-        ProcessingMode.newBuilder()
-            .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
-            .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
-            .setRequestBodyMode(ProcessingMode.BodySendMode.BUFFERED)
-            .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED)
-            .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
-            .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
-            .build());
-    return builder.build();
+  private static Duration millis(long ms) {
+    return Duration.newBuilder()
+        .setSeconds(ms / 1000)
+        .setNanos((int) ((ms % 1000) * 1_000_000L))
+        .build();
   }
 
-  private static Cluster upstreamCluster(String name, String host, int port) {
-    Cluster.Builder builder = Cluster.newBuilder();
-    builder.setName(name);
-    builder.setConnectTimeout(Duration.newBuilder().setSeconds(2).build());
-    builder.setLbPolicy(LbPolicy.ROUND_ROBIN);
-    builder.setType(Cluster.DiscoveryType.LOGICAL_DNS);
-    builder.setDnsLookupFamily(Cluster.DnsLookupFamily.V4_ONLY);
-    builder.setLoadAssignment(
-        ClusterLoadAssignment.newBuilder()
-            .setClusterName(name)
-            .addEndpoints(
-                LocalityLbEndpoints.newBuilder()
-                    .addLbEndpoints(
-                        LbEndpoint.newBuilder()
-                            .setEndpoint(
-                                Endpoint.newBuilder().setAddress(envoyAddress(host, port)).build())
-                            .build())
-                    .build())
-            .build());
-    return builder.build();
+  private static ProcessingMode bufferedProcessingMode() {
+    return ProcessingMode.newBuilder()
+        .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setRequestBodyMode(ProcessingMode.BodySendMode.BUFFERED)
+        .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED)
+        .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .build();
   }
 
-  private static Cluster grpcUpstreamCluster(String name, String host, int port) {
-    Cluster.Builder builder = Cluster.newBuilder();
-    builder.setName(name);
-    builder.setConnectTimeout(Duration.newBuilder().setSeconds(2).build());
-    builder.setLbPolicy(LbPolicy.ROUND_ROBIN);
-    builder.setType(Cluster.DiscoveryType.LOGICAL_DNS);
-    builder.setDnsLookupFamily(Cluster.DnsLookupFamily.V4_ONLY);
-    builder.setHttp2ProtocolOptions(
-        build.buf.gen.envoy.config.core.v3.Http2ProtocolOptions.getDefaultInstance());
-    builder.setLoadAssignment(
-        ClusterLoadAssignment.newBuilder()
-            .setClusterName(name)
-            .addEndpoints(
-                LocalityLbEndpoints.newBuilder()
-                    .addLbEndpoints(
-                        LbEndpoint.newBuilder()
-                            .setEndpoint(
-                                Endpoint.newBuilder().setAddress(envoyAddress(host, port)).build())
-                            .build())
+  private static HttpFilter makeExtProcFilter(
+      String name,
+      String clusterName,
+      boolean failureModeAllow,
+      Duration messageTimeout,
+      boolean observability,
+      boolean disabledByDefault,
+      ProcessingMode mode) {
+    ExternalProcessor cfg =
+        ExternalProcessor.newBuilder()
+            .setGrpcService(
+                GrpcService.newBuilder()
+                    .setEnvoyGrpc(GrpcService.EnvoyGrpc.newBuilder().setClusterName(clusterName))
+                    .setTimeout(Duration.newBuilder().setSeconds(30).build())
                     .build())
-            .build());
-    return builder.build();
+            .setFailureModeAllow(failureModeAllow)
+            .setObservabilityMode(observability)
+            .setMessageTimeout(messageTimeout)
+            .setMutationRules(
+                HeaderMutationRules.newBuilder().setAllowAllRouting(BoolValue.of(true)).build())
+            .setProcessingMode(mode)
+            .build();
+    return HttpFilter.newBuilder()
+        .setName(name)
+        .setDisabled(disabledByDefault)
+        .setTypedConfig(Any.pack(cfg))
+        .build();
   }
 
-  private static build.buf.gen.envoy.config.core.v3.Address envoyAddress(int port) {
-    return build.buf.gen.envoy.config.core.v3.Address.newBuilder()
-        .setSocketAddress(
-            build.buf.gen.envoy.config.core.v3.SocketAddress.newBuilder()
-                .setAddress("0.0.0.0")
-                .setPortValue(port)
+  private static Any makeOverridesAny(ProcessingMode mode, Boolean failureModeAllow) {
+    ExtProcOverrides.Builder overrides = ExtProcOverrides.newBuilder().setProcessingMode(mode);
+    if (failureModeAllow != null) {
+      overrides.setFailureModeAllow(BoolValue.of(failureModeAllow));
+    }
+    return Any.pack(ExtProcPerRoute.newBuilder().setOverrides(overrides.build()).build());
+  }
+
+  private static Route makeModeRoute(String prefix, ProcessingMode mode) {
+    return Route.newBuilder()
+        .setMatch(RouteMatch.newBuilder().setPrefix(prefix).build())
+        .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_PRIMARY).build())
+        .putTypedPerFilterConfig(EXT_PROC_FILTER_NAME, makeOverridesAny(mode, null))
+        .build();
+  }
+
+  private static Route makeProfileRoute(
+      String prefix, Any disabledDefault, Boolean failureModeAllow, String... enableFilters) {
+    Route.Builder route =
+        Route.newBuilder()
+            .setMatch(RouteMatch.newBuilder().setPrefix(prefix).build())
+            .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_PRIMARY).build())
+            .putTypedPerFilterConfig(EXT_PROC_FILTER_NAME, disabledDefault);
+    Any enableAny = makeOverridesAny(bufferedProcessingMode(), failureModeAllow);
+    for (String f : enableFilters) {
+      route.putTypedPerFilterConfig(f, enableAny);
+    }
+    return route.build();
+  }
+
+  private static Cluster makeCluster(
+      String name, String host, int port, HttpProtocolOptions httpOpts) {
+    return Cluster.newBuilder()
+        .setName(name)
+        .setConnectTimeout(Duration.newBuilder().setSeconds(2).build())
+        .setLbPolicy(LbPolicy.ROUND_ROBIN)
+        .setType(Cluster.DiscoveryType.LOGICAL_DNS)
+        .setDnsLookupFamily(Cluster.DnsLookupFamily.V4_ONLY)
+        .putTypedExtensionProtocolOptions(
+            "envoy.extensions.upstreams.http.v3.HttpProtocolOptions", Any.pack(httpOpts))
+        .setLoadAssignment(
+            ClusterLoadAssignment.newBuilder()
+                .setClusterName(name)
+                .addEndpoints(
+                    LocalityLbEndpoints.newBuilder()
+                        .addLbEndpoints(
+                            LbEndpoint.newBuilder()
+                                .setEndpoint(
+                                    Endpoint.newBuilder()
+                                        .setAddress(envoyAddress(host, port))
+                                        .build())
+                                .build())
+                        .build())
                 .build())
         .build();
   }
 
-  private static build.buf.gen.envoy.config.core.v3.Address envoyAddress(String host, int port) {
-    return build.buf.gen.envoy.config.core.v3.Address.newBuilder()
-        .setSocketAddress(
-            build.buf.gen.envoy.config.core.v3.SocketAddress.newBuilder()
-                .setAddress(host)
-                .setPortValue(port)
-                .build())
+  private static Address envoyAddress(int port) {
+    return envoyAddress("0.0.0.0", port);
+  }
+
+  private static Address envoyAddress(String host, int port) {
+    return Address.newBuilder()
+        .setSocketAddress(SocketAddress.newBuilder().setAddress(host).setPortValue(port).build())
         .build();
   }
 }

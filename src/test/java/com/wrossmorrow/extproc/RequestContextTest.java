@@ -115,6 +115,7 @@ class ContextTest {
   @Test
   void phaseAccessorsReflectCurrentPhase() {
     RequestContext ctx = new RequestContext();
+    ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_HEADERS);
     assertEquals(RequestCase.REQUEST_HEADERS, ctx.getPhase());
     assertEquals("REQUEST_HEADERS", ctx.getPhaseName());
@@ -208,6 +209,7 @@ class ContextTest {
   @Test
   void replaceBodyReplacesWholeBodyAndUpdatesContentLengthInHeaderPhases() {
     RequestContext ctx = new RequestContext();
+    ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_HEADERS);
     ctx.replaceBody("hello".getBytes(StandardCharsets.UTF_8));
     ProcessingResponse response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
@@ -224,7 +226,7 @@ class ContextTest {
   }
 
   @Test
-  void replaceBodyDoesNotUpdateContentLengthInBodyPhases() {
+  void replaceBodyUpdatesContentLengthInBodyPhases() {
     RequestContext ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_BODY);
     ctx.replaceBody("hello".getBytes(StandardCharsets.UTF_8));
@@ -233,8 +235,18 @@ class ContextTest {
     assertEquals(
         ByteString.copyFromUtf8("hello"),
         response.getRequestBody().getResponse().getBodyMutation().getBody());
-    assertEquals(0, ctx.addHeaders.size());
-    assertFalse(response.getRequestBody().getResponse().hasHeaderMutation());
+    assertEquals(1, ctx.addHeaders.size());
+    assertTrue(response.getRequestBody().getResponse().hasHeaderMutation());
+    assertEquals(
+        "5",
+        response
+            .getRequestBody()
+            .getResponse()
+            .getHeaderMutation()
+            .getSetHeaders(0)
+            .getHeader()
+            .getRawValue()
+            .toStringUtf8());
 
     ctx.reset(RequestCase.RESPONSE_BODY);
     ctx.replaceBody("world");
@@ -243,8 +255,8 @@ class ContextTest {
     assertEquals(
         ByteString.copyFromUtf8("world"),
         response.getResponseBody().getResponse().getBodyMutation().getBody());
-    assertEquals(0, ctx.addHeaders.size());
-    assertFalse(response.getResponseBody().getResponse().hasHeaderMutation());
+    assertEquals(1, ctx.addHeaders.size());
+    assertTrue(response.getResponseBody().getResponse().hasHeaderMutation());
   }
 
   @Test
@@ -264,8 +276,8 @@ class ContextTest {
     ctx.clearBody();
     response = ctx.getResponse(RequestCase.RESPONSE_BODY);
     assertTrue(response.getResponseBody().getResponse().getBodyMutation().getClearBody());
-    assertEquals(0, ctx.addHeaders.size());
-    assertFalse(response.getResponseBody().getResponse().hasHeaderMutation());
+    assertEquals(1, ctx.addHeaders.size());
+    assertTrue(response.getResponseBody().getResponse().hasHeaderMutation());
   }
 
   @Test
@@ -277,8 +289,9 @@ class ContextTest {
     assertTrue(response.getRequestBody().getResponse().hasBodyMutation());
     assertFalse(response.getRequestBody().getResponse().getBodyMutation().hasBody());
     assertTrue(response.getRequestBody().getResponse().getBodyMutation().getClearBody());
-    assertEquals(0, ctx.addHeaders.size());
+    assertEquals(1, ctx.addHeaders.size());
 
+    ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_HEADERS);
     ctx.replaceBody("");
     response = ctx.getResponse(RequestCase.REQUEST_HEADERS);
@@ -567,6 +580,7 @@ class ContextTest {
   @Test
   void resolveHeaderMutationEnforcesAddIfAbsentAndOverwriteIfExists() {
     RequestContext ctx = new RequestContext();
+    ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_HEADERS);
     ctx.initializeRequest(
         HeaderMap.newBuilder()
@@ -604,6 +618,7 @@ class ContextTest {
   @Test
   void resolvedHeaderMutationsCarryIntoBodyPhase() {
     RequestContext ctx = new RequestContext();
+    ctx = new RequestContext();
     ctx.reset(RequestCase.REQUEST_HEADERS);
     ctx.initializeRequest(
         HeaderMap.newBuilder()

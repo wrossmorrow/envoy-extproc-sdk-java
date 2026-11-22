@@ -52,6 +52,7 @@ jobs:
   conformance:
     needs: resolve-matrix
     runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.envoy == 'dev' }}
     strategy:
       fail-fast: false
       matrix:
@@ -80,7 +81,10 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: conformance-results-${{ matrix.envoy }}
-          path: results-${{ matrix.envoy }}.log
+          path: |
+            conformance/results/results-${{ matrix.envoy }}.json
+            results-${{ matrix.envoy }}.log
+          if-no-files-found: ignore
 
   report:
     needs: [resolve-matrix, conformance]

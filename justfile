@@ -40,18 +40,27 @@ down *flags:
 
 # run the envoy conformance harness (requires docker or ENVOY_BIN)
 conformance *flags:
-    ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*"
+    CONFORMANCE_REQUIRE_ENVOY=1 ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*" {{flags}}
 
 # run the envoy conformance harness against a specific envoy version
 conformance-version version="v1.40-latest" *flags:
-    ENVOY_VERSION={{version}} ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*"
+    CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION={{version}} ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*" {{flags}}
 
 # run the full envoy conformance matrix
 conformance-matrix *flags:
-    ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*"
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for v in $(jq -r '.supported[]' conformance/envoy-versions.json); do
+        echo "=== Envoy Conformance: ${v} ==="
+        CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${v}" ./gradlew test --tests "com.github.wrossmorrow.extproc.conformance.*" {{flags}}
+    done
 
 # generate the envoy conformance matrix markdown report
-conformance-report:
+conformance-report *flags:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rm -f conformance/results/results-*.json
+    just conformance-matrix {{flags}}
     ./gradlew conformanceReport
 
 # sync the envoy version manifest from endoflife.date
