@@ -16,6 +16,13 @@ Several examples are provided here in the [examples](#examples), which can be re
 
 ## Usage
 
+> Upgrading from an earlier release? See [MIGRATION.md](MIGRATION.md) for API
+> and runtime behavior notes (`v0.5.0`, `v0.4.0`, `v0.3.0`, and `v0.2.1`).
+>
+> Looking for supported Envoy versions, `ext_proc` v3 feature coverage, or the
+> conformance roadmap? See [CONFORMANCE.md](CONFORMANCE.md) and
+> [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md).
+
 ### TL;DR
 
 Implement the `extproc.RequestProcessor` interface, and pass an instance to the canned server:
@@ -189,7 +196,7 @@ replaceBodyChunk(byte[] body)   // replace a single chunk (buffered: the whole b
 replaceBodyChunk(String body)   // replace a single chunk (buffered: the whole body)
 clearBodyChunk()                  // clear a single chunk (buffered: the whole body)
 ```
-Passing `null` to `replaceBody` is a no-op, while passing an empty `byte[0]` or `""` delegates to `clearBody()`. Both `replaceBody` and `clearBody` update the `content-length` header only during header phases (`REQUEST_HEADERS` / `RESPONSE_HEADERS`), not during body phases (`REQUEST_BODY` / `RESPONSE_BODY`).
+Passing `null` to `replaceBody` is a no-op, while passing an empty `byte[0]` or `""` delegates to `clearBody()`. Both `replaceBody` and `clearBody` overwrite the `content-length` header to match the new body length (`BUFFERED` whole-body semantics); under `STREAMED` body mode where headers have already been sent, use `replaceBodyChunk` / `clearBodyChunk`, which do not touch `content-length`.
 
 ## Examples
 
@@ -327,7 +334,7 @@ This repository ships an [Envoy conformance harness](conformance) that exercises
 
 - Versioned target matrix: [conformance/envoy-versions.json](conformance/envoy-versions.json) (default `v1.40-latest`, supported `v1.37` – `v1.40`, plus `dev` canary).
 - Feature coverage plan & matrix: [CONFORMANCE.md](CONFORMANCE.md), [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md), [conformance/features.yaml](conformance/features.yaml).
-- Purposeful multi-version runs: [`.github/workflows/conformance.yaml`](workflows/conformance.yaml) (manual, weekly schedule, release tags, conformance-path changes).
+- Purposeful multi-version runs: [`.github/workflows/conformance.yaml`](.github/workflows/conformance.yaml) (manual, weekly schedule, release tags, conformance-path changes).
 
 Quick local entry points:
 
