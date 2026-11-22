@@ -1,0 +1,117 @@
+name: Envoy Conformance
+
+on:
+  workflow_dispatch:
+    inputs:
+      envoy_version:
+        description: 'Envoy version tag to test (empty = default from conformance/envoy-versions.json)'
+        required: false
+        default: ''
+      test_run:
+        description: 'Gradle test filter for the conformance suite (default: com.github.wrossmorrow.extproc.conformance.*)'
+        required: false
+        default: ''
+  schedule:
+    # weekly, Monday 09:00 UTC
+    - cron: '0 9 * * 1'
+  push:
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'conformance/**'
+      - 'src/test/java/com/github/wrossmorrow/extproc/conformance/**'
+      - '.github/workflows/conformance.yaml'
+
+env:
+  CONFORMANCE_REQUIRE_ENVOY: '1'
+
+jobs:
+  resolve-matrix:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.matrix.outputs.versions }}
+      matrix_json: ${{ steps.matrix.outputs.matrix_json }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Resolve Envoy version matrix
+        id: matrix
+        env:
+          INPUT_ENVOY_VERSION: ${{ inputs.envoy_version }}
+        run: |
+          if [ -n "$INPUT_ENVOY_VERSION" ]; then
+            versions=$(jq -cn --arg v "$INPUT_ENVOY_VERSION" '[$v]')
+            matrix_json=$(jq -cn --arg v "$INPUT_ENVOY_VERSION" '{default: $v, supported: [$v], canary: []}')
+          else
+            versions=$(jq -c '.supported + .canary | unique' conformance/envoy-versions.json)
+            matrix_json=$(jq -c '{default, supported, canary}' conformance/envoy-versions.json)
+          fi
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "matrix_json=$matrix_json" >> "$GITHUB_OUTPUT"
+
+  conformance:
+    needs: resolve-matrix
+    runs-on: ubuntu-latest
+    continue-on-error: ${{ matrix.envoy == 'dev' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        envoy: ${{ fromJson(needs.resolve-matrix.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Pull Envoy image
+        run: docker pull envoyproxy/envoy:${{ matrix.envoy }}
+      - name: Run conformance tests
+        env:
+          TEST_FILTER: ${{ inputs.test_run }}
+        run: |
+          filter="${TEST_FILTER:-com.github.wrossmorrow.extproc.conformance.*}"
+          CONFORMANCE_REQUIRE_ENVOY=1 ENVOY_VERSION="${{ matrix.envoy }}" \
+            ./gradlew test --tests "$filter" --info \
+            | tee "results-${{ matrix.envoy }}.log"
+      - name: Upload conformance results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance-results-${{ matrix.envoy }}
+          path: |
+            conformance/results/results-${{ matrix.envoy }}.json
+            results-${{ matrix.envoy }}.log
+          if-no-files-found: ignore
+
+  report:
+    needs: [resolve-matrix, conformance]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: conformance-results-*
+          merge-multiple: true
+          path: conformance/results
+      - name: Generate conformance matrix
+        run: ./gradlew conformanceReport
+      - name: Upload conformance summary
+        uses: actions/upload-artifact@v7
+        with:
+          name: conformance-summary
+          path: |
+            /tmp/conformance-matrix.md
+            /tmp/conformance-summary.json
+      - name: Write step summary
+        run: cat /tmp/conformance-matrix.md >> "$GITHUB_STEP_SUMMARY"

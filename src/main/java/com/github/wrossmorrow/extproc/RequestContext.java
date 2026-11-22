@@ -798,15 +798,11 @@ public class RequestContext {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
   }
 
-  private boolean isHeadersPhase() {
-    return phase == RequestCase.REQUEST_HEADERS || phase == RequestCase.RESPONSE_HEADERS;
-  }
-
   /**
    * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
-   * content-length during header phases. A {@code null} body is a no-op; an empty body delegates to
-   * {@link #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(byte[])} instead,
-   * which is chunk semantics.
+   * content-length to match. A {@code null} body is a no-op; an empty body delegates to {@link
+   * #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(byte[])} instead, which
+   * is chunk semantics.
    */
   public void replaceBody(byte[] body) {
     if (body == null) {
@@ -817,16 +813,14 @@ public class RequestContext {
       return;
     }
     bodyMutation = BodyMutation.newBuilder().setBody(ByteString.copyFrom(body)).build();
-    if (isHeadersPhase()) {
-      overwriteHeader("content-length", String.valueOf(body.length));
-    }
+    overwriteHeader("content-length", String.valueOf(body.length));
   }
 
   /**
    * Replaces the whole body (BUFFERED semantics: one message is the whole body) and updates the
-   * content-length during header phases. A {@code null} body is a no-op; an empty body delegates to
-   * {@link #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(String)} instead,
-   * which is chunk semantics.
+   * content-length to match. A {@code null} body is a no-op; an empty body delegates to {@link
+   * #clearBody()}. Under STREAMED body mode, use {@link #replaceBodyChunk(String)} instead, which
+   * is chunk semantics.
    */
   public void replaceBody(String body) {
     if (body == null) {
@@ -836,14 +830,12 @@ public class RequestContext {
   }
 
   /**
-   * Clears the whole body and zeroes the content-length during header phases (BUFFERED semantics).
-   * Under STREAMED body mode, use {@link #clearBodyChunk()} instead, which clears a single chunk.
+   * Clears the whole body and zeroes the content-length (BUFFERED semantics). Under STREAMED body
+   * mode, use {@link #clearBodyChunk()} instead, which clears a single chunk.
    */
   public void clearBody() {
     bodyMutation = BodyMutation.newBuilder().setClearBody(true).build();
-    if (isHeadersPhase()) {
-      overwriteHeader("content-length", "0");
-    }
+    overwriteHeader("content-length", "0");
   }
 
   /** Signals that the route cache should be cleared before the next upstream request. */

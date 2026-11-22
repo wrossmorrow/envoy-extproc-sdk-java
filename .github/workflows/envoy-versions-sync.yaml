@@ -1,0 +1,45 @@
+name: Envoy Versions Sync
+
+on:
+  schedule:
+    # weekly, Monday 09:05 UTC
+    - cron: '5 9 * * 1'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'conformance/envoy-versions.json'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: 'temurin'
+          java-version: ${{ vars.WORKING_JAVA_VERSION || '17' }}
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          cache-provider: basic
+      - name: Fetch endoflife.date Envoy data
+        run: curl -fsSL https://endoflife.date/api/envoy.json -o /tmp/eol-envoy.json
+      - name: Sync Envoy version manifest
+        run: ./gradlew syncEnvoyVersions
+      - name: Upload updated manifest
+        uses: actions/upload-artifact@v7
+        with:
+          name: envoy-versions-manifest
+          path: conformance/envoy-versions.json
+      - name: Create or update sync PR
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: envoy-versions-sync
+          title: 'chore: sync envoy version manifest from endoflife.date'
+          commit-message: 'chore: sync envoy version manifest from endoflife.date'
+          body: |
+            Automated sync of the Envoy version manifest against the endoflife.date API.
+          add-paths: conformance/envoy-versions.json

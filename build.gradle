@@ -13,6 +13,14 @@ version = (findProperty('releaseVersion') ?: '0.3.0-SNAPSHOT').toString().replac
 sourceCompatibility = 1.8
 targetCompatibility = 1.8
 
+sourceSets {
+  test {
+    resources {
+      srcDir 'conformance'
+    }
+  }
+}
+
 repositories {
   maven { url "https://maven-central.storage-download.googleapis.com/maven2/" }
   maven { url 'https://buf.build/gen/maven' }
@@ -48,6 +56,7 @@ dependencies {
   
   testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
   testImplementation "io.grpc:grpc-testing:${grpcVersion}"
+  testImplementation "io.grpc:grpc-netty-shaded:${grpcVersion}"
   testImplementation "junit:junit:4.13.2"
   testImplementation "org.mockito:mockito-core:3.4.0"
 
@@ -80,6 +89,22 @@ tasks.register('loadGen', JavaExec) {
     description = 'Run the plain gRPC load generator against an extproc server.'
     mainClass = 'com.github.wrossmorrow.extproc.loadgen.LoadGen'
     classpath = sourceSets.main.runtimeClasspath
+}
+
+tasks.register('conformanceReport', JavaExec) {
+    group = 'verification'
+    description = 'Generate the Envoy conformance matrix report and summary.'
+    mainClass = 'com.github.wrossmorrow.extproc.conformance.ConformanceReportCommand'
+    classpath = sourceSets.test.runtimeClasspath
+    args = ['conformance/results', '/tmp/conformance-matrix.md', '/tmp/conformance-summary.json', 'CONFORMANCE.md']
+}
+
+tasks.register('syncEnvoyVersions', JavaExec) {
+    group = 'verification'
+    description = 'Sync the Envoy version manifest from the endoflife.date Envoy API.'
+    mainClass = 'com.github.wrossmorrow.extproc.conformance.SyncEnvoyVersionsCommand'
+    classpath = sourceSets.test.runtimeClasspath
+    args = ['/tmp/eol-envoy.json', 'conformance/envoy-versions.json']
 }
 
 test {

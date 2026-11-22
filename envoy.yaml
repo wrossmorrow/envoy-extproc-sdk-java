@@ -370,6 +370,25 @@ static_resources:
           "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
           explicit_http_config:
             http2_protocol_options: {}
+    - name: data
+      dns_lookup_family: V4_ONLY
+      lb_policy: LEAST_REQUEST
+      load_assignment:
+        cluster_name: data
+        endpoints:
+          - lb_endpoints:
+              - endpoint:
+                  address:
+                    socket_address:
+                      address: data
+                      port_value: 50051
+                  hostname: data
+      type: LOGICAL_DNS
+      typed_extension_protocol_options:
+        envoy.extensions.upstreams.http.v3.HttpProtocolOptions:
+          "@type": type.googleapis.com/envoy.extensions.upstreams.http.v3.HttpProtocolOptions
+          explicit_http_config:
+            http2_protocol_options: {}
     - name: router
       dns_lookup_family: V4_ONLY
       lb_policy: LEAST_REQUEST
