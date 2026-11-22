@@ -34,7 +34,7 @@ Verification in this repository is intentionally split into two tiers:
 Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
 
 | Feature | Category | SDK status | v1.37-latest | v1.38-latest | v1.39-latest | v1.40-latest |
-| --- | --- | --- | --- | --- | --- | --- | |
+| --- | --- | --- | --- | --- | --- | --- |
 | headers_send | Headers | supported | not_run | not_run | not_run | not_run |
 | headers_skip_request | Headers | supported | not_run | not_run | not_run | not_run |
 | headers_representation | Headers | supported | not_run | not_run | not_run | not_run |
