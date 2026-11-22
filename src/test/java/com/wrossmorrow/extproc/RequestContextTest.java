@@ -991,4 +991,77 @@ class ContextTest {
     assertEquals("r1", inCtx.getAttributes().get("xds.route_name"));
     assertEquals(Double.valueOf(200.0), inCtx.getAttributes().get("response.code"));
   }
+
+  @Test
+  void overrideMessageTimeoutValidationPhasesAndObservability() {
+    RequestContext guarded = new RequestContext();
+    guarded.reset(RequestCase.REQUEST_HEADERS);
+    guarded.sendTimeoutOverride = resp -> {};
+
+    for (Duration bad :
+        new Duration[] {null, Duration.ZERO, Duration.ofMillis(-10), Duration.ofNanos(999_000)}) {
+      assertThrows(
+          IllegalArgumentException.class,
+          () -> guarded.overrideMessageTimeout(bad),
+          "expected error for " + bad);
+    }
+
+    RequestContext noPhase = new RequestContext();
+    noPhase.sendTimeoutOverride = resp -> {};
+    assertThrows(
+        IllegalStateException.class, () -> noPhase.overrideMessageTimeout(Duration.ofMillis(50)));
+
+    RequestContext noStream = new RequestContext();
+    noStream.reset(RequestCase.REQUEST_HEADERS);
+    assertThrows(
+        IllegalStateException.class, () -> noStream.overrideMessageTimeout(Duration.ofMillis(50)));
+
+    List<ProcessingResponse> sent = new ArrayList<ProcessingResponse>();
+    RequestContext multiPhase = new RequestContext();
+    multiPhase.sendTimeoutOverride = sent::add;
+
+    RequestCase[] phases = {
+      RequestCase.REQUEST_HEADERS,
+      RequestCase.REQUEST_BODY,
+      RequestCase.REQUEST_TRAILERS,
+      RequestCase.RESPONSE_HEADERS,
+      RequestCase.RESPONSE_BODY,
+      RequestCase.RESPONSE_TRAILERS
+    };
+    for (RequestCase phase : phases) {
+      sent.clear();
+      if (phase == RequestCase.REQUEST_HEADERS) {
+        multiPhase = new RequestContext();
+        multiPhase.sendTimeoutOverride = sent::add;
+      }
+      multiPhase.reset(phase);
+      multiPhase.overrideMessageTimeout(Duration.ofMillis(500));
+      assertEquals(1, sent.size());
+      ProcessingResponse interim = sent.get(0);
+      assertEquals(phase.name(), interim.getResponseCase().name());
+      assertTrue(interim.hasOverrideMessageTimeout());
+      assertEquals(0L, interim.getOverrideMessageTimeout().getSeconds());
+      assertEquals(500_000_000, interim.getOverrideMessageTimeout().getNanos());
+
+      final RequestContext ref = multiPhase;
+      assertThrows(
+          IllegalStateException.class, () -> ref.overrideMessageTimeout(Duration.ofMillis(250)));
+    }
+
+    multiPhase.reset(RequestCase.RESPONSE_HEADERS);
+    sent.clear();
+    multiPhase.overrideMessageTimeout(Duration.ofMillis(200));
+    assertEquals(1, sent.size());
+    assertEquals(200_000_000, sent.get(0).getOverrideMessageTimeout().getNanos());
+
+    RequestContext obsCtx = new RequestContext();
+    List<ProcessingResponse> obsSent = new ArrayList<ProcessingResponse>();
+    obsCtx.sendTimeoutOverride = obsSent::add;
+    obsCtx.reset(RequestCase.REQUEST_HEADERS);
+    obsCtx.observabilityMode = true;
+    obsCtx.overrideMessageTimeout(Duration.ofMillis(100));
+    assertTrue(obsSent.isEmpty());
+    assertThrows(
+        IllegalStateException.class, () -> obsCtx.overrideMessageTimeout(Duration.ofMillis(100)));
+  }
 }

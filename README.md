@@ -141,7 +141,22 @@ fields.put("risk_score", 0.1);
 fields.put("allowed", true);
 ctx.setDynamicMetadataNamespace("com.acme.extproc", fields);
 ```
-Use `ctx.clearDynamicMetadata()` to discard pending outbound metadata for the current phase. Note that Envoy ignores returned namespaces unless they are listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` stores numeric values as `Double` when read back from `ctx.getMetadata()` or `ctx.getAttributes()`. 
+Use `ctx.clearDynamicMetadata()` to discard pending outbound metadata for the current phase. Note that Envoy ignores returned namespaces unless they are listed in `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct` stores numeric values as `Double` when read back from `ctx.getMetadata()` or `ctx.getAttributes()`.
+
+### Per-Message Timeout Override
+
+To request extra processing time on Envoy's current message timer mid-phase, call `overrideMessageTimeout` before slow work in a processor callback:
+```java
+ctx.overrideMessageTimeout(Duration.ofMillis(750));
+```
+This immediately sends an interim `ProcessingResponse` with `override_message_timeout` set (at most once per phase; no-op when `ctx.isObservabilityMode()` is `true`) and requires `max_message_timeout >= timeout >= 1ms` on Envoy's `ext_proc` filter (`max_message_timeout` defaults to `0`, disabling overrides).
+
+> [!WARNING]
+> **`ext_proc` runs inline on Envoy's request/response hot path.** Think carefully before extending per-message timeouts in production:
+> - **Inline head-of-line blocking**: holding an `ext_proc` phase open keeps downstream connections, Envoy filter state, and any `BUFFERED` HTTP request/response bodies pinned in memory.
+> - **Concurrency amplification (Little's Law)**: multiplying per-request dwell time multiplies active concurrent gRPC streams at steady RPS — size `ServerOptions.maxConcurrentStreams`, Envoy cluster `http2_protocol_options` / circuit breakers, and overall Envoy route timeouts together or slow calls will cascade into `503`/`504` failures.
+> - **Extra gRPC round-trip**: `overrideMessageTimeout` transmits an additional frame on the stream before your phase's final `ProcessingResponse`; gate it behind slow-path conditions rather than calling it unconditionally on every request.
+> - **Silent ignore when out of bounds**: if `max_message_timeout` is unset (`0`) or smaller than the requested duration (or `< 1ms`), Envoy increments `override_message_timeout_ignored` and keeps the original `message_timeout`. 
 
 ### Modifying Headers
 

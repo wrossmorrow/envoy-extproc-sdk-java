@@ -22,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -1403,6 +1404,119 @@ public class EnvoyLiveConformanceTest {
       assertNotNull(attrs, "missing response attributes snapshot for " + phase);
       assertEquals(Double.valueOf(201.0), attrs.get("response.code"), phase + " response.code");
     }
+    runner.assertNoProtocolErrors();
+  }
+
+  @Test
+  void override_message_timeout(TestInfo info) throws Exception {
+    String id = info.getTestMethod().get().getName();
+
+    // 1. extends_deadline_beyond_base_message_timeout
+    String extendCaseId = id + "-extend";
+    defaultProcessor.register(
+        extendCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMessageTimeout(Duration.ofSeconds(1));
+            try {
+              Thread.sleep(300);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+            ctx.addHeader("x-extended", "true");
+          }
+        });
+    UpstreamServer.UpstreamEcho extendEcho =
+        parseEcho(
+            client.send(
+                "GET", "/profile/timeout-override/extend", caseHeaders(extendCaseId), null));
+    assertEquals(Collections.singletonList("true"), extendEcho.headers.get("x-extended"));
+    runner.assertNoProtocolErrors();
+
+    // 2. multiple_phases_can_each_extend_once
+    String multiCaseId = id + "-multi";
+    defaultProcessor.register(
+        multiCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMessageTimeout(Duration.ofSeconds(1));
+            try {
+              Thread.sleep(250);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            ctx.overrideMessageTimeout(Duration.ofSeconds(1));
+            try {
+              Thread.sleep(250);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            }
+            ctx.replaceBody("extended-both");
+          }
+        });
+    UpstreamServer.UpstreamEcho multiEcho =
+        parseEcho(
+            client.send(
+                "POST", "/profile/timeout-override/multi", caseHeaders(multiCaseId), "raw-slow"));
+    assertEquals("extended-both", multiEcho.body);
+    runner.assertNoProtocolErrors();
+
+    // 3. exceeding_max_message_timeout_is_ignored_and_times_out
+    String exceedCaseId = id + "-exceed";
+    final CountDownLatch exceedRelease = new CountDownLatch(1);
+    final CountDownLatch exceedDone = new CountDownLatch(1);
+    defaultProcessor.register(
+        exceedCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            try {
+              ctx.overrideMessageTimeout(Duration.ofSeconds(3));
+              exceedRelease.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            } finally {
+              exceedDone.countDown();
+            }
+          }
+        });
+    EnvoyHttpClient.Response exceedResp =
+        client.send("GET", "/profile/timeout-override/exceed", caseHeaders(exceedCaseId), null);
+    exceedRelease.countDown();
+    assertTrue(exceedDone.await(5, TimeUnit.SECONDS));
+    assertEquals(504, exceedResp.status, exceedResp.body);
+    runner.assertNoProtocolErrors();
+
+    // 4. ignored_when_max_message_timeout_unset
+    String noMaxCaseId = id + "-no-max";
+    final CountDownLatch noMaxRelease = new CountDownLatch(1);
+    final CountDownLatch noMaxDone = new CountDownLatch(1);
+    defaultProcessor.register(
+        noMaxCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            try {
+              ctx.overrideMessageTimeout(Duration.ofSeconds(1));
+              noMaxRelease.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+              Thread.currentThread().interrupt();
+            } finally {
+              noMaxDone.countDown();
+            }
+          }
+        });
+    EnvoyHttpClient.Response noMaxResp =
+        client.send("GET", "/profile/timeout-fail-closed/no-max", caseHeaders(noMaxCaseId), null);
+    noMaxRelease.countDown();
+    assertTrue(noMaxDone.await(5, TimeUnit.SECONDS));
+    assertEquals(504, noMaxResp.status, noMaxResp.body);
     runner.assertNoProtocolErrors();
   }
 }
