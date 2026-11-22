@@ -4,22 +4,14 @@ import com.github.wrossmorrow.extproc.ProcessingOptions;
 import com.github.wrossmorrow.extproc.RequestContext;
 import com.github.wrossmorrow.extproc.RequestProcessor;
 import com.github.wrossmorrow.extproc.RequestProcessorHealthManager;
-import java.math.BigInteger;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HashMap;
 import java.util.Map;
 
 public class DigestRequestProcessor implements RequestProcessor {
 
-  Map<String, StringBuilder> hashtexts;
-  Map<String, String> digests;
-
-  public DigestRequestProcessor() {
-    hashtexts = new HashMap<String, StringBuilder>();
-    digests = new HashMap<String, String>();
-  }
+  private static final char[] HEX_DIGITS = "0123456789abcdef".toCharArray();
 
   public String getName() {
     return "digest";
@@ -36,65 +28,96 @@ public class DigestRequestProcessor implements RequestProcessor {
   }
 
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
-    StringBuilder hashtext = new StringBuilder(ctx.getMethod() + ":" + ctx.getPath());
-    if (ctx.streamComplete()) {
+    String method = ctx.getMethod() == null ? "" : ctx.getMethod();
+    String path = ctx.getPath() == null ? "" : ctx.getPath();
+    StringBuilder hashtext = new StringBuilder(method).append(':').append(path);
+    ctx.setValue("hashtext", hashtext);
+    if (Boolean.TRUE.equals(ctx.streamComplete())) {
       String digest = SHAHash(hashtext);
       ctx.addHeader("x-extproc-request-digest", digest);
-      digests.put(ctx.getRequestId(), digest);
+      ctx.setValue("digest", digest);
     }
-    hashtexts.put(ctx.getRequestId(), hashtext);
   }
 
   public void processRequestBody(RequestContext ctx, String body) {
-    StringBuilder hashtext = hashtexts.get(ctx.getRequestId());
-    hashtext.append(":");
-    hashtext.append(body);
-    if (ctx.streamComplete()) {
+    StringBuilder hashtext = ctx.getValue("hashtext", StringBuilder.class);
+    if (hashtext == null) {
+      String method = ctx.getMethod() == null ? "" : ctx.getMethod();
+      String path = ctx.getPath() == null ? "" : ctx.getPath();
+      hashtext = new StringBuilder(method).append(':').append(path);
+      ctx.setValue("hashtext", hashtext);
+    }
+    if (!Boolean.TRUE.equals(ctx.getValue("bodyStarted", Boolean.class))) {
+      hashtext.append(':');
+      ctx.setValue("bodyStarted", Boolean.TRUE);
+    }
+    if (body != null) {
+      hashtext.append(body);
+    }
+    if (Boolean.TRUE.equals(ctx.streamComplete())) {
       String digest = SHAHash(hashtext);
       ctx.addHeader("x-extproc-request-digest", digest);
-      digests.put(ctx.getRequestId(), digest);
+      ctx.setValue("digest", digest);
     }
   }
 
   public void processRequestTrailers(RequestContext ctx, Map<String, String> trailers) {}
 
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
-    if (ctx.streamComplete()) {
-      String digest = digests.getOrDefault(ctx.getRequestId(), "");
-      ctx.addHeader("x-extproc-request-digest", digest);
-      hashtexts.remove(ctx.getRequestId());
-      digests.remove(ctx.getRequestId());
+    if (Boolean.TRUE.equals(ctx.streamComplete())) {
+      emitResponseDigest(ctx);
     }
   }
 
   public void processResponseBody(RequestContext ctx, String body) {
-    if (ctx.streamComplete()) {
-      String digest = digests.getOrDefault(ctx.getRequestId(), "");
-      ctx.addHeader("x-extproc-request-digest", digest);
-      hashtexts.remove(ctx.getRequestId());
-      digests.remove(ctx.getRequestId());
+    if (Boolean.TRUE.equals(ctx.streamComplete())) {
+      emitResponseDigest(ctx);
     }
   }
 
-  public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {}
+  public void processResponseTrailers(RequestContext ctx, Map<String, String> trailers) {
+    emitResponseDigest(ctx);
+  }
+
+  private void emitResponseDigest(RequestContext ctx) {
+    String digest = ctx.getValue("digest", String.class);
+    if (digest == null) {
+      StringBuilder hashtext = ctx.getValue("hashtext", StringBuilder.class);
+      digest = hashtext == null ? "" : SHAHash(hashtext);
+      ctx.setValue("digest", digest);
+    }
+    ctx.addHeader("x-extproc-request-digest", digest);
+  }
 
   protected String SHAHash(StringBuilder input) {
+    return sha256Hex(input == null ? "" : input.toString());
+  }
+
+  protected String convertToHex(final byte[] messageDigest) {
+    return toHex(messageDigest);
+  }
+
+  static String sha256Hex(String input) {
     try {
       MessageDigest md = MessageDigest.getInstance("SHA-256");
-      byte[] d = md.digest(input.toString().getBytes(StandardCharsets.UTF_8));
-      return convertToHex(d);
+      byte[] d = md.digest((input == null ? "" : input).getBytes(StandardCharsets.UTF_8));
+      return toHex(d);
     } catch (NoSuchAlgorithmException e) {
       System.out.println("No such algorithm exception");
       return "";
     }
   }
 
-  protected String convertToHex(final byte[] messageDigest) {
-    BigInteger bigint = new BigInteger(1, messageDigest);
-    String hexText = bigint.toString(16);
-    while (hexText.length() < 32) {
-      hexText = "0".concat(hexText);
+  static String toHex(final byte[] messageDigest) {
+    if (messageDigest == null) {
+      return "";
     }
-    return hexText;
+    char[] chars = new char[messageDigest.length * 2];
+    for (int i = 0; i < messageDigest.length; i++) {
+      int v = messageDigest[i] & 0xFF;
+      chars[i * 2] = HEX_DIGITS[v >>> 4];
+      chars[i * 2 + 1] = HEX_DIGITS[v & 0x0F];
+    }
+    return new String(chars);
   }
 }

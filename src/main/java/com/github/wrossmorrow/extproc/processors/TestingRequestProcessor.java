@@ -77,7 +77,6 @@ public class TestingRequestProcessor implements RequestProcessor {
   }
 
   private final ProcessingOptions options;
-  private volatile TesterRequestBody actions;
 
   public TestingRequestProcessor() {
     this(new ProcessingOptions());
