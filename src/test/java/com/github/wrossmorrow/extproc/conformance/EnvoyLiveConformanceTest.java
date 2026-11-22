@@ -10,6 +10,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.wrossmorrow.extproc.ExternalProcessorServer;
 import com.github.wrossmorrow.extproc.ModeOverride;
 import com.github.wrossmorrow.extproc.ProcessingOptions;
+import com.github.wrossmorrow.extproc.ProtocolConfig;
 import com.github.wrossmorrow.extproc.RequestContext;
 import com.github.wrossmorrow.extproc.ServerOptions;
 import java.io.OutputStream;
@@ -21,6 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -1018,5 +1020,231 @@ public class EnvoyLiveConformanceTest {
                 "POST", "/profile/mode-override-allowlist", caseHeaders(allowDeniedId), "payload"));
     assertEquals("payload", allowDeniedEcho.body);
     assertEquals(0, allowDeniedReqBody.get());
+  }
+
+  @Test
+  void protocol_config(TestInfo info) throws Exception {
+    String id = info.getTestMethod().get().getName();
+
+    // 1. body_modes_and_cross_phase_persistence
+    String[][] modeCases = {
+      {"none", "/mode/none/protocol-config", "NONE", "NONE", "false"},
+      {"buffered", "/mode/buffered/protocol-config", "BUFFERED", "BUFFERED", "true"},
+      {"streamed", "/mode/streamed/protocol-config", "STREAMED", "STREAMED", "true"},
+      {
+        "buffered_partial",
+        "/mode/buffered-partial/protocol-config",
+        "BUFFERED_PARTIAL",
+        "BUFFERED_PARTIAL",
+        "true"
+      }
+    };
+    for (String[] tc : modeCases) {
+      String caseId = id + "-" + tc[0];
+      ModeOverride.BodySendMode wantReq = ModeOverride.BodySendMode.valueOf(tc[2]);
+      ModeOverride.BodySendMode wantResp = ModeOverride.BodySendMode.valueOf(tc[3]);
+      boolean expectBodies = Boolean.parseBoolean(tc[4]);
+
+      final Map<String, ProtocolConfig> observed =
+          Collections.synchronizedMap(new LinkedHashMap<String, ProtocolConfig>());
+      final List<String> nilPhases = Collections.synchronizedList(new ArrayList<String>());
+
+      defaultProcessor.register(
+          caseId,
+          new ConformanceProcessor.CaseHandler() {
+            private void record(String phaseName, RequestContext ctx) {
+              ProtocolConfig pc = ctx.getProtocolConfig();
+              if (pc == null) {
+                nilPhases.add(phaseName);
+              } else {
+                observed.put(phaseName, pc);
+              }
+            }
+
+            @Override
+            public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+              record("req_headers", ctx);
+            }
+
+            @Override
+            public void requestBody(RequestContext ctx, String body) {
+              record("req_body", ctx);
+            }
+
+            @Override
+            public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+              record("resp_headers", ctx);
+            }
+
+            @Override
+            public void responseBody(RequestContext ctx, String body) {
+              record("resp_body", ctx);
+            }
+          });
+
+      EnvoyHttpClient.Response resp = client.send("POST", tc[1], caseHeaders(caseId), "probe-body");
+      assertEquals(200, resp.status, resp.body);
+      assertTrue(
+          nilPhases.isEmpty(), tc[0] + " observed nil ProtocolConfig in phases: " + nilPhases);
+
+      ProtocolConfig wantCfg = new ProtocolConfig(wantReq, wantResp, false);
+      List<String> expectedPhases = new ArrayList<String>();
+      expectedPhases.add("req_headers");
+      expectedPhases.add("resp_headers");
+      if (expectBodies) {
+        expectedPhases.add("req_body");
+        expectedPhases.add("resp_body");
+      }
+      for (String p : expectedPhases) {
+        assertEquals(wantCfg, observed.get(p), tc[0] + " phase " + p);
+      }
+    }
+
+    // 2. skip_request_headers_first_message
+    String skipCaseId = id + "-skip-req-hdrs";
+    final AtomicBoolean reqHdrsCalled = new AtomicBoolean(false);
+    final Map<String, ProtocolConfig> skipObserved =
+        Collections.synchronizedMap(new LinkedHashMap<String, ProtocolConfig>());
+    final List<String> skipNilPhases = Collections.synchronizedList(new ArrayList<String>());
+    defaultProcessor.register(
+        skipCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          private void record(String phaseName, RequestContext ctx) {
+            ProtocolConfig pc = ctx.getProtocolConfig();
+            if (pc == null) {
+              skipNilPhases.add(phaseName);
+            } else {
+              skipObserved.put(phaseName, pc);
+            }
+          }
+
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            reqHdrsCalled.set(true);
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            record("resp_headers", ctx);
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            record("resp_body", ctx);
+          }
+        });
+    EnvoyHttpClient.Response skipResp =
+        client.send("GET", "/mode/skip-req-headers/protocol-config", caseHeaders(skipCaseId), null);
+    assertEquals(200, skipResp.status, skipResp.body);
+    assertFalse(reqHdrsCalled.get());
+    assertTrue(skipNilPhases.isEmpty(), "observed nil ProtocolConfig: " + skipNilPhases);
+    ProtocolConfig wantSkipCfg =
+        new ProtocolConfig(
+            ModeOverride.BodySendMode.NONE, ModeOverride.BodySendMode.BUFFERED, false);
+    assertEquals(wantSkipCfg, skipObserved.get("resp_headers"));
+    assertEquals(wantSkipCfg, skipObserved.get("resp_body"));
+
+    // 3. send_body_without_waiting_for_header_response
+    String noWaitCaseId = id + "-no-wait";
+    final Map<String, ProtocolConfig> noWaitObserved =
+        Collections.synchronizedMap(new LinkedHashMap<String, ProtocolConfig>());
+    final List<String> noWaitNilPhases = Collections.synchronizedList(new ArrayList<String>());
+    defaultProcessor.register(
+        noWaitCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          private void record(String phaseName, RequestContext ctx) {
+            ProtocolConfig pc = ctx.getProtocolConfig();
+            if (pc == null) {
+              noWaitNilPhases.add(phaseName);
+            } else {
+              noWaitObserved.put(phaseName, pc);
+            }
+          }
+
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            record("req_headers", ctx);
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            record("req_body", ctx);
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            record("resp_headers", ctx);
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            record("resp_body", ctx);
+          }
+        });
+    UpstreamServer.UpstreamEcho noWaitEcho =
+        parseEcho(
+            client.send(
+                "POST",
+                "/profile/send-body-without-waiting/check",
+                caseHeaders(noWaitCaseId),
+                "fast-stream-body"));
+    assertEquals("fast-stream-body", noWaitEcho.body);
+    assertTrue(noWaitNilPhases.isEmpty(), "observed nil ProtocolConfig: " + noWaitNilPhases);
+    ProtocolConfig wantNoWaitCfg =
+        new ProtocolConfig(
+            ModeOverride.BodySendMode.STREAMED, ModeOverride.BodySendMode.STREAMED, true);
+    for (String p : Arrays.asList("req_headers", "req_body", "resp_headers", "resp_body")) {
+      assertEquals(wantNoWaitCfg, noWaitObserved.get(p), "phase " + p);
+    }
+    runner.assertNoProtocolErrors();
+
+    // 4. default_mode_override_preserves_response_body_mode
+    String defOverrideCaseId = id + "-default-override";
+    final AtomicBoolean defRespBodyCalled = new AtomicBoolean(false);
+    final AtomicBoolean defRespBodyNonEmpty = new AtomicBoolean(false);
+    final AtomicReference<String> defReqBodySeen = new AtomicReference<String>("");
+    final AtomicReference<String> defHeaderErr = new AtomicReference<String>(null);
+    defaultProcessor.register(
+        defOverrideCaseId,
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ProtocolConfig want =
+                new ProtocolConfig(
+                    ModeOverride.BodySendMode.NONE, ModeOverride.BodySendMode.BUFFERED, false);
+            if (!want.equals(ctx.getProtocolConfig())) {
+              defHeaderErr.set("unexpected ProtocolConfig: " + ctx.getProtocolConfig());
+              return;
+            }
+            ModeOverride mode = ctx.defaultModeOverride();
+            mode.setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED);
+            ctx.overrideMode(mode);
+          }
+
+          @Override
+          public void requestBody(RequestContext ctx, String body) {
+            defReqBodySeen.set(body);
+            ctx.replaceBody("mutated-req");
+          }
+
+          @Override
+          public void responseBody(RequestContext ctx, String body) {
+            defRespBodyCalled.set(true);
+            defRespBodyNonEmpty.set(body != null && !body.isEmpty());
+          }
+        });
+    UpstreamServer.UpstreamEcho defOverrideEcho =
+        parseEcho(
+            client.send(
+                "POST",
+                "/profile/mode-override-resp-buffered/check",
+                caseHeaders(defOverrideCaseId),
+                "raw-req"));
+    assertEquals(null, defHeaderErr.get());
+    assertEquals("raw-req", defReqBodySeen.get());
+    assertEquals("mutated-req", defOverrideEcho.body);
+    assertTrue(defRespBodyCalled.get());
+    assertTrue(defRespBodyNonEmpty.get());
+    runner.assertNoProtocolErrors();
   }
 }

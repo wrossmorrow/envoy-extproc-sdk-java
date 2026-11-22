@@ -291,6 +291,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
     ctx.reset(phase);
     ctx.observabilityMode = obs;
+    if (request.hasProtocolConfig()) {
+      ctx.protocolConfig = ProtocolConfig.fromProto(request.getProtocolConfig());
+    }
     switch (phase) {
       case REQUEST_HEADERS:
         HeaderMap protoRequestHeaders = request.getRequestHeaders().getHeaders();

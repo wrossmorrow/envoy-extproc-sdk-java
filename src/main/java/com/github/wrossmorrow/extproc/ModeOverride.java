@@ -1,6 +1,7 @@
 package com.github.wrossmorrow.extproc;
 
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
+import java.util.Objects;
 
 /**
  * Per-request processing mode overrides applied via {@code ProcessingResponse.mode_override} during
@@ -23,7 +24,29 @@ public class ModeOverride {
     BUFFERED,
     BUFFERED_PARTIAL,
     FULL_DUPLEX_STREAMED,
-    GRPC
+    GRPC;
+
+    /** Maps an Envoy protobuf {@link ProcessingMode.BodySendMode} to {@link BodySendMode}. */
+    public static BodySendMode fromEnvoy(ProcessingMode.BodySendMode mode) {
+      if (mode == null) {
+        return NONE;
+      }
+      switch (mode) {
+        case STREAMED:
+          return STREAMED;
+        case BUFFERED:
+          return BUFFERED;
+        case BUFFERED_PARTIAL:
+          return BUFFERED_PARTIAL;
+        case FULL_DUPLEX_STREAMED:
+          return FULL_DUPLEX_STREAMED;
+        case GRPC:
+          return GRPC;
+        case NONE:
+        default:
+          return NONE;
+      }
+    }
   }
 
   public HeaderSendMode responseHeaderMode = HeaderSendMode.DEFAULT;
@@ -108,5 +131,47 @@ public class ModeOverride {
       default:
         throw new IllegalArgumentException("unsupported BodySendMode: " + mode);
     }
+  }
+
+  @Override
+  public boolean equals(Object o) {
+    if (this == o) {
+      return true;
+    }
+    if (!(o instanceof ModeOverride)) {
+      return false;
+    }
+    ModeOverride that = (ModeOverride) o;
+    return responseHeaderMode == that.responseHeaderMode
+        && requestBodyMode == that.requestBodyMode
+        && responseBodyMode == that.responseBodyMode
+        && requestTrailerMode == that.requestTrailerMode
+        && responseTrailerMode == that.responseTrailerMode;
+  }
+
+  @Override
+  public int hashCode() {
+    return Objects.hash(
+        responseHeaderMode,
+        requestBodyMode,
+        responseBodyMode,
+        requestTrailerMode,
+        responseTrailerMode);
+  }
+
+  @Override
+  public String toString() {
+    return "ModeOverride{"
+        + "responseHeaderMode="
+        + responseHeaderMode
+        + ", requestBodyMode="
+        + requestBodyMode
+        + ", responseBodyMode="
+        + responseBodyMode
+        + ", requestTrailerMode="
+        + requestTrailerMode
+        + ", responseTrailerMode="
+        + responseTrailerMode
+        + '}';
   }
 }
