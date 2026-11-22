@@ -122,6 +122,7 @@ public class RequestContext {
   BodyMutation bodyMutation;
   ImmediateResponse immediateResponse;
   protected ProcessingMode modeOverride;
+  protected ProtocolConfig protocolConfig;
 
   public RequestContext() {
     this("x-request-id");
@@ -141,6 +142,7 @@ public class RequestContext {
     responseHeaders = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
     allRequestHeaders = new AllHeaders();
     allResponseHeaders = new AllHeaders();
+    protocolConfig = null;
     reset();
   }
 
@@ -463,6 +465,14 @@ public class RequestContext {
     return observabilityMode;
   }
 
+  /**
+   * Returns Envoy's ext_proc protocol configuration captured from the first {@code
+   * ProcessingRequest} of the stream, or {@code null} when absent.
+   */
+  public ProtocolConfig getProtocolConfig() {
+    return protocolConfig;
+  }
+
   public String getProcessorId() {
     return processorId;
   }
@@ -582,6 +592,23 @@ public class RequestContext {
             .setResponseBodyMode(ModeOverride.BodySendMode.NONE)
             .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
             .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
+  }
+
+  /**
+   * Returns a {@link ModeOverride} pre-populated with Envoy's configured {@code requestBodyMode}
+   * and {@code responseBodyMode} from {@link #getProtocolConfig()} (when present) and {@code
+   * DEFAULT} for header and trailer modes.
+   */
+  public ModeOverride defaultModeOverride() {
+    if (protocolConfig == null) {
+      return new ModeOverride();
+    }
+    return new ModeOverride()
+        .setResponseHeaderMode(ModeOverride.HeaderSendMode.DEFAULT)
+        .setRequestBodyMode(protocolConfig.requestBodyMode)
+        .setResponseBodyMode(protocolConfig.responseBodyMode)
+        .setRequestTrailerMode(ModeOverride.HeaderSendMode.DEFAULT)
+        .setResponseTrailerMode(ModeOverride.HeaderSendMode.DEFAULT);
   }
 
   /** Returns the pending Envoy {@link ProcessingMode} override for this phase, or {@code null}. */

@@ -50,7 +50,7 @@ Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
 | processor_failure_modes | Resilience & Chaining | supported | pass | pass | pass | pass |
 | multi_filter_chaining | Resilience & Chaining | supported | pass | pass | pass | pass |
 | observability_mode | Spec Extensions | protocol_gap | skipped | skipped | skipped | skipped |
-| protocol_config | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| protocol_config | Spec Extensions | supported | pass | pass | pass | pass |
 | mode_override | Spec Extensions | supported | pass | pass | pass | pass |
 | dynamic_metadata_and_attributes | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
 | override_message_timeout | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |

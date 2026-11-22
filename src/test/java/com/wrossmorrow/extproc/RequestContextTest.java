@@ -9,6 +9,7 @@ import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
+import build.buf.gen.envoy.service.ext_proc.v3.ProtocolConfiguration;
 import build.buf.gen.envoy.type.v3.StatusCode;
 import com.google.protobuf.ByteString;
 import java.nio.charset.StandardCharsets;
@@ -783,5 +784,55 @@ class ContextTest {
         () -> ctx.overrideMode(new ModeOverride().setRequestBodyMode(null)));
     assertNotNull(ctx.getModeOverride());
     assertEquals(ProcessingMode.BodySendMode.STREAMED, ctx.getModeOverride().getRequestBodyMode());
+  }
+
+  @Test
+  void protocolConfigFromProtoAndDefaultModeOverride() {
+    assertNull(ProtocolConfig.fromProto(null));
+
+    ProtocolConfiguration proto =
+        ProtocolConfiguration.newBuilder()
+            .setRequestBodyMode(ProcessingMode.BodySendMode.STREAMED)
+            .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED_PARTIAL)
+            .setSendBodyWithoutWaitingForHeaderResponse(true)
+            .build();
+    ProtocolConfig parsed = ProtocolConfig.fromProto(proto);
+    assertNotNull(parsed);
+    assertEquals(ModeOverride.BodySendMode.STREAMED, parsed.getRequestBodyMode());
+    assertEquals(ModeOverride.BodySendMode.BUFFERED_PARTIAL, parsed.getResponseBodyMode());
+    assertTrue(parsed.isSendBodyWithoutWaitingForHeaderResponse());
+    assertEquals(
+        new ProtocolConfig(
+            ModeOverride.BodySendMode.STREAMED, ModeOverride.BodySendMode.BUFFERED_PARTIAL, true),
+        parsed);
+
+    RequestContext emptyCtx = new RequestContext();
+    ModeOverride emptyDefault = emptyCtx.defaultModeOverride();
+    assertEquals(new ModeOverride(), emptyDefault);
+    assertNotNull(emptyDefault.toEnvoyProcessingMode());
+
+    RequestContext ctx = new RequestContext();
+    ProtocolConfig expected =
+        new ProtocolConfig(
+            ModeOverride.BodySendMode.NONE, ModeOverride.BodySendMode.BUFFERED, true);
+    ctx.protocolConfig = expected;
+
+    ModeOverride mode = ctx.defaultModeOverride();
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, mode.responseHeaderMode);
+    assertEquals(ModeOverride.BodySendMode.NONE, mode.requestBodyMode);
+    assertEquals(ModeOverride.BodySendMode.BUFFERED, mode.responseBodyMode);
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, mode.requestTrailerMode);
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, mode.responseTrailerMode);
+
+    mode.setRequestBodyMode(ModeOverride.BodySendMode.STREAMED);
+    ProcessingMode converted = mode.toEnvoyProcessingMode();
+    assertEquals(ProcessingMode.BodySendMode.STREAMED, converted.getRequestBodyMode());
+    assertEquals(ProcessingMode.BodySendMode.BUFFERED, converted.getResponseBodyMode());
+
+    ctx.reset(RequestCase.REQUEST_BODY);
+    ctx.reset(RequestCase.RESPONSE_HEADERS);
+    ctx.initializeRequest(HeaderMap.getDefaultInstance());
+    ctx.initializeResponse(HeaderMap.getDefaultInstance());
+    assertEquals(expected, ctx.getProtocolConfig());
   }
 }

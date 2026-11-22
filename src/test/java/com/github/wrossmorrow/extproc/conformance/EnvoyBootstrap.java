@@ -60,6 +60,7 @@ public class EnvoyBootstrap {
   public static final String EXT_PROC_MODE_OVERRIDE_FILTER_NAME = "extproc_mode_override";
   public static final String EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME =
       "extproc_mode_override_allowlist";
+  public static final String EXT_PROC_SEND_BODY_NO_WAIT_FILTER_NAME = "extproc_send_body_no_wait";
 
   public static final String EXT_PROC_CLUSTER_DEFAULT = "extproc_service";
   public static final String EXT_PROC_CLUSTER_ABORT = "extproc_abort_service";
@@ -191,17 +192,7 @@ public class EnvoyBootstrap {
             .build();
 
     Route bufferedRoute = makeModeRoute("/mode/buffered", bufferedProcessingMode());
-    Route streamedRoute =
-        makeModeRoute(
-            "/mode/streamed",
-            ProcessingMode.newBuilder()
-                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
-                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
-                .setRequestBodyMode(ProcessingMode.BodySendMode.STREAMED)
-                .setResponseBodyMode(ProcessingMode.BodySendMode.STREAMED)
-                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
-                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
-                .build());
+    Route streamedRoute = makeModeRoute("/mode/streamed", streamedProcessingMode());
     Route trailersRoute =
         makeModeRoute(
             "/mode/trailers",
@@ -271,6 +262,20 @@ public class EnvoyBootstrap {
             noneProcessingMode(),
             null,
             EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME);
+    Route modeOverrideRespBufferedRoute =
+        makeProfileRouteWithMode(
+            "/profile/mode-override-resp-buffered",
+            disabledDefault,
+            ProcessingMode.newBuilder()
+                .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                .setRequestBodyMode(ProcessingMode.BodySendMode.NONE)
+                .setResponseBodyMode(ProcessingMode.BodySendMode.BUFFERED)
+                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                .build(),
+            null,
+            EXT_PROC_MODE_OVERRIDE_FILTER_NAME);
     Route modeOverrideRoute =
         makeProfileRouteWithMode(
             "/profile/mode-override",
@@ -278,6 +283,13 @@ public class EnvoyBootstrap {
             noneProcessingMode(),
             null,
             EXT_PROC_MODE_OVERRIDE_FILTER_NAME);
+    Route sendBodyNoWaitRoute =
+        makeProfileRouteWithMode(
+            "/profile/send-body-without-waiting",
+            disabledDefault,
+            streamedProcessingMode(),
+            null,
+            EXT_PROC_SEND_BODY_NO_WAIT_FILTER_NAME);
 
     Route defaultRoute =
         Route.newBuilder()
@@ -319,7 +331,9 @@ public class EnvoyBootstrap {
                                     chainedRoute,
                                     observabilityRoute,
                                     modeOverrideAllowlistRoute,
+                                    modeOverrideRespBufferedRoute,
                                     modeOverrideRoute,
+                                    sendBodyNoWaitRoute,
                                     defaultRoute))
                             .build())
                     .build())
@@ -408,6 +422,17 @@ public class EnvoyBootstrap {
                                 .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
                                 .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
                                 .build())),
+                    makeExtProcFilter(
+                        EXT_PROC_SEND_BODY_NO_WAIT_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        streamedProcessingMode(),
+                        false,
+                        true,
+                        null),
                     HttpFilter.newBuilder()
                         .setName("envoy.filters.http.router")
                         .setTypedConfig(Any.pack(Router.getDefaultInstance()))
@@ -457,6 +482,17 @@ public class EnvoyBootstrap {
         .build();
   }
 
+  private static ProcessingMode streamedProcessingMode() {
+    return ProcessingMode.newBuilder()
+        .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setRequestBodyMode(ProcessingMode.BodySendMode.STREAMED)
+        .setResponseBodyMode(ProcessingMode.BodySendMode.STREAMED)
+        .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .build();
+  }
+
   private static HttpFilter makeExtProcFilter(
       String name,
       String clusterName,
@@ -474,6 +510,7 @@ public class EnvoyBootstrap {
         disabledByDefault,
         mode,
         false,
+        false,
         null);
   }
 
@@ -486,6 +523,30 @@ public class EnvoyBootstrap {
       boolean disabledByDefault,
       ProcessingMode mode,
       boolean allowModeOverride,
+      Iterable<ProcessingMode> allowedOverrideModes) {
+    return makeExtProcFilter(
+        name,
+        clusterName,
+        failureModeAllow,
+        messageTimeout,
+        observability,
+        disabledByDefault,
+        mode,
+        allowModeOverride,
+        false,
+        allowedOverrideModes);
+  }
+
+  private static HttpFilter makeExtProcFilter(
+      String name,
+      String clusterName,
+      boolean failureModeAllow,
+      Duration messageTimeout,
+      boolean observability,
+      boolean disabledByDefault,
+      ProcessingMode mode,
+      boolean allowModeOverride,
+      boolean sendBodyWithoutWaiting,
       Iterable<ProcessingMode> allowedOverrideModes) {
     ExternalProcessor.Builder cfg =
         ExternalProcessor.newBuilder()
@@ -502,6 +563,9 @@ public class EnvoyBootstrap {
             .setProcessingMode(mode);
     if (allowModeOverride) {
       cfg.setAllowModeOverride(true);
+    }
+    if (sendBodyWithoutWaiting) {
+      cfg.setSendBodyWithoutWaitingForHeaderResponse(true);
     }
     if (allowedOverrideModes != null) {
       cfg.addAllAllowedOverrideModes(allowedOverrideModes);

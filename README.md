@@ -91,6 +91,7 @@ The `RequestContext` is initialized with some request data when request headers 
 * an accumulator `duration` _for the time spent in external processing_
 * a flag-method `streamComplete` within header, body, and trailer phases to know when phase data is complete
 * a flag `ObservabilityMode` reflecting `ProcessingRequest.observability_mode` (when `true`, processor callbacks run for observation and the SDK suppresses `ProcessingResponse` messages)
+* `getProtocolConfig()` (`ProtocolConfig`) reflecting `ProcessingRequest.protocol_config` sent by Envoy on the first message of the stream (`requestBodyMode`, `responseBodyMode`, and `sendBodyWithoutWaitingForHeaderResponse`), retained across all phases of that stream
 
 This context is carried through every request phase, and passed to the interface methods. In particular, your implementation can store data in memory related to specific requests keyed on the request ID or via another strategy of your choosing. You can supply your own ID, which can be stored in the context, if that suits your needs better, using `setProcessorId`. This can only be set _once_, ideally in request header phase, but can be retrieved throughout the lifetime of a request's processing. 
 
@@ -121,7 +122,7 @@ ctx.overrideMode(
         .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
         .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
 ```
-You can also call `ctx.skipRemainingPhases()` to skip all subsequent phases on the stream, or `ctx.clearModeOverride()` to clear a pending override before returning. `mode_override` is only attached to header phase responses when the request is not cancelled, and is reset after each phase. 
+You can also call `ctx.skipRemainingPhases()` to skip all subsequent phases on the stream, or `ctx.clearModeOverride()` to clear a pending override before returning. `mode_override` is only attached to header phase responses when the request is not cancelled, and is reset after each phase. Note that Envoy's `ProcessingMode` proto has no "keep default" body enum (`NONE` is `0`), so when calling `overrideMode` from `processRequestHeaders`, either set both `requestBodyMode` and `responseBodyMode` explicitly or start from `ctx.defaultModeOverride()` (pre-populated from `ctx.getProtocolConfig()`). 
 
 ### Modifying Headers
 

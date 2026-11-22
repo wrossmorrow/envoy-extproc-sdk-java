@@ -88,9 +88,13 @@ public class ConformanceProcessor implements RequestProcessor {
     if (value != null) {
       return value.toString();
     }
-    String header = ctx.getRequestHeader(CASE_HEADER);
-    if (header != null) {
-      return header;
+    String reqHeader = ctx.getRequestHeader(CASE_HEADER);
+    if (reqHeader != null) {
+      return reqHeader;
+    }
+    String respHeader = ctx.getResponseHeader(CASE_HEADER);
+    if (respHeader != null) {
+      return respHeader;
     }
     return "";
   }
@@ -110,6 +114,9 @@ public class ConformanceProcessor implements RequestProcessor {
   @Override
   public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
     String resolvedCaseId = resolveCaseId(ctx, headers);
+    if (!resolvedCaseId.isEmpty()) {
+      ctx.setValue(CASE_HEADER, resolvedCaseId);
+    }
     CaseHandler handler = cases.get(resolvedCaseId);
     if (handler == null) {
       return;
@@ -137,7 +144,11 @@ public class ConformanceProcessor implements RequestProcessor {
 
   @Override
   public void processResponseHeaders(RequestContext ctx, Map<String, String> headers) {
-    CaseHandler handler = cases.get(resolveCaseId(ctx, headers));
+    String resolvedCaseId = resolveCaseId(ctx, headers);
+    if (!resolvedCaseId.isEmpty()) {
+      ctx.setValue(CASE_HEADER, resolvedCaseId);
+    }
+    CaseHandler handler = cases.get(resolvedCaseId);
     if (handler == null) {
       return;
     }
