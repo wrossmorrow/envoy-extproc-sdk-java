@@ -47,7 +47,7 @@ public class UpstreamServer {
     int port = socket.getLocalPort();
     socket.close();
     upstream.port = port;
-    HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", port), 64);
+    HttpServer server = HttpServer.create(new InetSocketAddress(port), 64);
     server.createContext(
         "/",
         new HttpHandler() {

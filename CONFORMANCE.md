@@ -34,6 +34,37 @@ Verification in this repository is intentionally split into two tiers:
 Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
 
 | Feature | Category | SDK status | v1.37-latest | v1.38-latest | v1.39-latest | v1.40-latest |
+| --- | --- | --- | --- | --- | --- | --- | |
+| headers_send | Headers | supported | not_run | not_run | not_run | not_run |
+| headers_skip_request | Headers | supported | not_run | not_run | not_run | not_run |
+| headers_representation | Headers | supported | not_run | not_run | not_run | not_run |
+| headers_mutations_core | Headers | supported | not_run | not_run | not_run | not_run |
+| headers_append_action | Headers | partial | not_run | not_run | not_run | not_run |
+| body_none | Bodies | supported | not_run | not_run | not_run | not_run |
+| body_buffered | Bodies | supported | not_run | not_run | not_run | not_run |
+| body_streamed | Bodies | supported | not_run | not_run | not_run | not_run |
+| body_buffered_partial | Bodies | supported | not_run | not_run | not_run | not_run |
+| trailers_http1_and_h2c | Trailers | supported | not_run | not_run | not_run | not_run |
+| routing_clear_route_cache | Routing & Local Reply | supported | not_run | not_run | not_run | not_run |
+| immediate_response | Routing & Local Reply | partial | not_run | not_run | not_run | not_run |
+| per_route_disabled | Routing & Local Reply | supported | not_run | not_run | not_run | not_run |
+| downstream_cancellation | Resilience & Chaining | supported | not_run | not_run | not_run | not_run |
+| message_timeout_and_fail_open | Resilience & Chaining | supported | not_run | not_run | not_run | not_run |
+| processor_failure_modes | Resilience & Chaining | supported | not_run | not_run | not_run | not_run |
+| multi_filter_chaining | Resilience & Chaining | supported | not_run | not_run | not_run | not_run |
+| observability_mode | Spec Extensions | protocol_gap | not_run | not_run | not_run | not_run |
+| protocol_config | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| mode_override | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| dynamic_metadata_and_attributes | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| override_message_timeout | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| continue_and_replace_and_full_duplex | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+
+
+# Envoy conformance matrix
+
+Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
+
+| Feature | Category | SDK status | v1.37-latest | v1.38-latest | v1.39-latest | v1.40-latest |
 | --- | --- | --- | --- | --- | --- | --- |
 | headers_send | Headers | supported | not_run | not_run | not_run | not_run |
 | headers_skip_request | Headers | supported | not_run | not_run | not_run | not_run |

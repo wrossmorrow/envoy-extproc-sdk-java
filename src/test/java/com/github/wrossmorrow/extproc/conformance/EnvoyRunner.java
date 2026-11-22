@@ -82,7 +82,11 @@ public class EnvoyRunner {
 
   private void startInternal() throws Exception {
     EnvoyBootstrap.BootstrapParams params = new EnvoyBootstrap.BootstrapParams();
-    params.upstreamHost = config.upstreamHost;
+    String host = config.upstreamHost;
+    if (!isEnvoyBinary() && ("127.0.0.1".equals(host) || "localhost".equals(host))) {
+      host = "host.docker.internal";
+    }
+    params.upstreamHost = host;
     params.primaryUpstreamPort = config.primaryUpstreamPort;
     params.secondaryUpstreamPort = config.secondaryUpstreamPort;
     params.extProcPort = config.extProcPort;
@@ -147,12 +151,19 @@ public class EnvoyRunner {
     Process docker = pb.start();
     dockerMode.set(true);
     dockerProcesses.put(containerName, docker);
-    docker.waitFor(30, TimeUnit.SECONDS);
+    String runOut = readProcessOutput(docker);
+    if (!docker.waitFor(30, TimeUnit.SECONDS)) {
+      docker.destroyForcibly();
+      throw new IllegalStateException("timed out starting docker envoy: " + runOut.trim());
+    }
+    if (docker.exitValue() != 0) {
+      throw new IllegalStateException("docker run envoy failed: " + runOut.trim());
+    }
     String hostPort = readDockerPort(containerName, 18080);
     String adminPort = readDockerPort(containerName, 19901);
     proxyAddr = "127.0.0.1:" + hostPort;
     adminAddr = "127.0.0.1:" + adminPort;
-    waitReady(adminAddr, 120);
+    waitReady(adminAddr, 30);
   }
 
   private final Map<String, Process> dockerProcesses = new ConcurrentHashMap<String, Process>();
@@ -170,10 +181,9 @@ public class EnvoyRunner {
     pb.redirectErrorStream(true);
     Process started = pb.start();
     process = started;
-    started.waitFor(30, TimeUnit.SECONDS);
     proxyAddr = "127.0.0.1:18080";
     adminAddr = "127.0.0.1:19901";
-    waitReady(adminAddr, 90);
+    waitReady(adminAddr, 30);
   }
 
   private void checkDockerAvailable() throws Exception {
@@ -221,9 +231,45 @@ public class EnvoyRunner {
       if (code == 200) {
         return;
       }
+      if (dockerMode.get() && containerName != null && !isDockerContainerRunning(containerName)) {
+        String logs = readDockerLogs(containerName);
+        throw new IllegalStateException(
+            "envoy container " + containerName + " exited before becoming ready:\n" + logs);
+      }
+      if (!dockerMode.get() && process != null && !process.isAlive()) {
+        throw new IllegalStateException(
+            "envoy binary exited before becoming ready with code " + process.exitValue());
+      }
       Thread.sleep(200);
     }
     throw new IllegalStateException("timed out waiting for envoy admin /ready at " + adminAddr);
+  }
+
+  private static boolean isDockerContainerRunning(String containerName) {
+    try {
+      ProcessBuilder pb =
+          new ProcessBuilder("docker", "inspect", "-f", "{{.State.Running}}", containerName);
+      pb.redirectErrorStream(true);
+      Process p = pb.start();
+      String out = readProcessOutput(p).trim();
+      p.waitFor(5, TimeUnit.SECONDS);
+      return p.exitValue() == 0 && "true".equals(out);
+    } catch (Exception e) {
+      return false;
+    }
+  }
+
+  private static String readDockerLogs(String containerName) {
+    try {
+      ProcessBuilder pb = new ProcessBuilder("docker", "logs", "--tail", "50", containerName);
+      pb.redirectErrorStream(true);
+      Process p = pb.start();
+      String out = readProcessOutput(p);
+      p.waitFor(5, TimeUnit.SECONDS);
+      return out;
+    } catch (Exception e) {
+      return "";
+    }
   }
 
   private static int getStatus(String baseUrl, String path) {

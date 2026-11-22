@@ -152,16 +152,32 @@ public class EnvoyConformanceTest {
   void envoyGatedConformanceExchange() throws Exception {
     UpstreamServer upstream = UpstreamServer.start("primary");
     EnvoyRunner.EnvoyConfig config = new EnvoyRunner.EnvoyConfig();
-    config.upstreamHost = "host.docker.internal";
+    config.upstreamHost = "127.0.0.1";
     config.primaryUpstreamPort = upstream.port();
     config.secondaryUpstreamPort = upstream.port();
     config.extProcPort = 50052;
     config.abortExtProcPort = 50053;
     config.secondaryExtProcPort = 50054;
+    ConformanceProcessor processor = ConformanceProcessor.newDefault("conformance");
+    processor.register(
+        "headers_mutations_http1",
+        new ConformanceProcessor.CaseHandler() {
+          @Override
+          public void requestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overwriteHeader("x-extproc-req", "applied");
+          }
+
+          @Override
+          public void responseHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overwriteHeader("x-extproc-resp", "applied");
+          }
+        });
     ExternalProcessorServer extProcServer =
         new ExternalProcessorServer()
             .builder(config.extProcPort)
-            .addRequestProcessor(ConformanceProcessor.newDefault("conformance"));
+            .setMetricsPort(0)
+            .setTerminationGracePeriodSeconds(2)
+            .addRequestProcessor(processor);
     extProcServer.start();
     EnvoyRunner runner = EnvoyRunner.start(config);
     try {
@@ -170,7 +186,11 @@ public class EnvoyConformanceTest {
       headers.put(ConformanceProcessor.CASE_HEADER, "headers_mutations_http1");
       EnvoyHttpClient.Response response = client.send("POST", "/v1/foo", headers, "hello");
       assertNotNull(response);
-      assertEquals(200, response.status);
+      assertEquals(200, response.status, response.body);
+      assertTrue(
+          response.body.toLowerCase(java.util.Locale.ROOT).contains("x-extproc-req"),
+          response.body);
+      assertEquals("applied", response.headers.get("x-extproc-resp"));
       runner.assertNoProtocolErrors();
       System.out.println("envoy conformance exchange status=" + response.status);
     } finally {

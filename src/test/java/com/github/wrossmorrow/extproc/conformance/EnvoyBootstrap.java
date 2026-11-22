@@ -11,10 +11,17 @@ import build.buf.gen.envoy.config.endpoint.v3.LocalityLbEndpoints;
 import build.buf.gen.envoy.config.listener.v3.Filter;
 import build.buf.gen.envoy.config.listener.v3.FilterChain;
 import build.buf.gen.envoy.config.listener.v3.Listener;
+import build.buf.gen.envoy.config.route.v3.Route;
+import build.buf.gen.envoy.config.route.v3.RouteAction;
+import build.buf.gen.envoy.config.route.v3.RouteConfiguration;
+import build.buf.gen.envoy.config.route.v3.RouteMatch;
+import build.buf.gen.envoy.config.route.v3.VirtualHost;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor;
 import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
+import build.buf.gen.envoy.extensions.filters.http.router.v3.Router;
+import build.buf.gen.envoy.extensions.filters.network.http_connection_manager.v3.HttpConnectionManager;
+import build.buf.gen.envoy.extensions.filters.network.http_connection_manager.v3.HttpFilter;
 import com.google.protobuf.Any;
-import com.google.protobuf.ByteString;
 import com.google.protobuf.Duration;
 import com.google.protobuf.util.JsonFormat;
 import java.util.Arrays;
@@ -78,8 +85,9 @@ public class EnvoyBootstrap {
     Bootstrap bootstrap = buildBootstrap(params);
     com.google.protobuf.TypeRegistry.Builder registryBuilder =
         com.google.protobuf.TypeRegistry.newBuilder();
-    registryBuilder.add(
-        build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor.getDescriptor());
+    registryBuilder.add(HttpConnectionManager.getDescriptor());
+    registryBuilder.add(ExternalProcessor.getDescriptor());
+    registryBuilder.add(Router.getDescriptor());
     com.google.protobuf.TypeRegistry registry = registryBuilder.build();
     JsonFormat.Printer printer = JsonFormat.printer().usingTypeRegistry(registry);
     try {
@@ -90,6 +98,38 @@ public class EnvoyBootstrap {
   }
 
   private static Listener httpListener(BootstrapParams params) {
+    HttpConnectionManager hcm =
+        HttpConnectionManager.newBuilder()
+            .setStatPrefix("ingress_http")
+            .setCodecType(HttpConnectionManager.CodecType.AUTO)
+            .setRouteConfig(
+                RouteConfiguration.newBuilder()
+                    .setName(CONFORMANCE_ROUTES_NAME)
+                    .addVirtualHosts(
+                        VirtualHost.newBuilder()
+                            .setName("conformance")
+                            .addDomains("*")
+                            .addRoutes(
+                                Route.newBuilder()
+                                    .setMatch(RouteMatch.newBuilder().setPrefix("/").build())
+                                    .setRoute(
+                                        RouteAction.newBuilder()
+                                            .setCluster(UPSTREAM_PRIMARY)
+                                            .build())
+                                    .build())
+                            .build())
+                    .build())
+            .addHttpFilters(
+                HttpFilter.newBuilder()
+                    .setName(EXT_PROC_FILTER_NAME)
+                    .setTypedConfig(Any.pack(extProcTypedConfig()))
+                    .build())
+            .addHttpFilters(
+                HttpFilter.newBuilder()
+                    .setName("envoy.filters.http.router")
+                    .setTypedConfig(Any.pack(Router.getDefaultInstance()))
+                    .build())
+            .build();
     return Listener.newBuilder()
         .setName(CONFORMANCE_LISTENER_NAME)
         .setAddress(envoyAddress(params.listenerPort))
@@ -97,13 +137,8 @@ public class EnvoyBootstrap {
             FilterChain.newBuilder()
                 .addFilters(
                     Filter.newBuilder()
-                        .setName(EXT_PROC_FILTER_NAME)
-                        .setTypedConfig(
-                            Any.newBuilder()
-                                .setTypeUrl(
-                                    "type.googleapis.com/envoy.extensions.filters.http.ext_proc.v3.ExternalProcessor")
-                                .setValue(ByteString.copyFrom(extProcTypedConfig().toByteArray()))
-                                .build())
+                        .setName("envoy.filters.network.http_connection_manager")
+                        .setTypedConfig(Any.pack(hcm))
                         .build())
                 .build())
         .build();
@@ -139,6 +174,8 @@ public class EnvoyBootstrap {
     builder.setName(name);
     builder.setConnectTimeout(Duration.newBuilder().setSeconds(2).build());
     builder.setLbPolicy(LbPolicy.ROUND_ROBIN);
+    builder.setType(Cluster.DiscoveryType.LOGICAL_DNS);
+    builder.setDnsLookupFamily(Cluster.DnsLookupFamily.V4_ONLY);
     builder.setLoadAssignment(
         ClusterLoadAssignment.newBuilder()
             .setClusterName(name)
@@ -159,7 +196,8 @@ public class EnvoyBootstrap {
     builder.setName(name);
     builder.setConnectTimeout(Duration.newBuilder().setSeconds(2).build());
     builder.setLbPolicy(LbPolicy.ROUND_ROBIN);
-    builder.setType(build.buf.gen.envoy.config.cluster.v3.Cluster.DiscoveryType.STATIC);
+    builder.setType(Cluster.DiscoveryType.LOGICAL_DNS);
+    builder.setDnsLookupFamily(Cluster.DnsLookupFamily.V4_ONLY);
     builder.setHttp2ProtocolOptions(
         build.buf.gen.envoy.config.core.v3.Http2ProtocolOptions.getDefaultInstance());
     builder.setLoadAssignment(
