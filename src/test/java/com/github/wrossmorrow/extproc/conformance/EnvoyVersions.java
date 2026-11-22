@@ -12,6 +12,8 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Multi-version Envoy target resolution for the conformance suite, mirroring the Go SDK's {@code
@@ -208,5 +210,83 @@ public class EnvoyVersions {
   private static int minor(String tag) {
     String[] parts = tag.substring(1, tag.length() - "-latest".length()).split("\\.");
     return Integer.parseInt(parts[1]);
+  }
+
+  private static final Pattern COMPOSE_ENVOY_IMAGE_PATTERN =
+      Pattern.compile("envoyproxy/envoy:\\$\\{ENVOY_VERSION:-[^}]+\\}");
+  private static final Pattern CONFORMANCE_DEFAULT_ENV_PATTERN =
+      Pattern.compile("defaults to `ENVOY_VERSION=[^`]+`");
+  private static final Pattern CONFORMANCE_MATRIX_RANGE_PATTERN =
+      Pattern.compile("\\| `v[0-9]+\\.[0-9]+` – `v[0-9]+\\.[0-9]+` \\+ `dev` \\|");
+  private static final Pattern JUSTFILE_VERSION_PATTERN =
+      Pattern.compile("conformance-version version=\"[^\"]+\"");
+
+  /**
+   * Updates {@code docker-compose.yaml} default {@code ENVOY_VERSION} tag to match the manifest.
+   */
+  public static String syncDockerComposeYaml(String content, EnvoyVersionManifest manifest) {
+    if (content == null
+        || manifest == null
+        || manifest.defaultVersion == null
+        || manifest.defaultVersion.isEmpty()) {
+      return content;
+    }
+    return COMPOSE_ENVOY_IMAGE_PATTERN
+        .matcher(content)
+        .replaceAll(
+            Matcher.quoteReplacement(
+                "envoyproxy/envoy:${ENVOY_VERSION:-" + manifest.defaultVersion + "}"));
+  }
+
+  /** Updates {@code CONFORMANCE.md} Envoy default tag and supported minor range references. */
+  public static String syncConformanceDoc(String content, EnvoyVersionManifest manifest) {
+    if (content == null || manifest == null) {
+      return content;
+    }
+    String updated = content;
+    if (manifest.defaultVersion != null && !manifest.defaultVersion.isEmpty()) {
+      updated =
+          COMPOSE_ENVOY_IMAGE_PATTERN
+              .matcher(updated)
+              .replaceAll(
+                  Matcher.quoteReplacement(
+                      "envoyproxy/envoy:${ENVOY_VERSION:-" + manifest.defaultVersion + "}"));
+      updated =
+          CONFORMANCE_DEFAULT_ENV_PATTERN
+              .matcher(updated)
+              .replaceAll(
+                  Matcher.quoteReplacement(
+                      "defaults to `ENVOY_VERSION=" + manifest.defaultVersion + "`"));
+    }
+    if (manifest.supported != null && !manifest.supported.isEmpty()) {
+      String firstCycle = stripLatestSuffix(manifest.supported.get(0));
+      String lastCycle = stripLatestSuffix(manifest.supported.get(manifest.supported.size() - 1));
+      updated =
+          CONFORMANCE_MATRIX_RANGE_PATTERN
+              .matcher(updated)
+              .replaceAll(
+                  Matcher.quoteReplacement(
+                      "| `" + firstCycle + "` – `" + lastCycle + "` + `dev` |"));
+    }
+    return updated;
+  }
+
+  /** Updates the default {@code conformance-version} recipe argument in {@code justfile}. */
+  public static String syncJustfile(String content, EnvoyVersionManifest manifest) {
+    if (content == null
+        || manifest == null
+        || manifest.defaultVersion == null
+        || manifest.defaultVersion.isEmpty()) {
+      return content;
+    }
+    return JUSTFILE_VERSION_PATTERN
+        .matcher(content)
+        .replaceAll(
+            Matcher.quoteReplacement(
+                "conformance-version version=\"" + manifest.defaultVersion + "\""));
+  }
+
+  private static String stripLatestSuffix(String tag) {
+    return tag.endsWith("-latest") ? tag.substring(0, tag.length() - "-latest".length()) : tag;
   }
 }

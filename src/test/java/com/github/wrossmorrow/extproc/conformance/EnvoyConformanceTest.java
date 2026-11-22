@@ -12,6 +12,8 @@ import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -202,5 +204,62 @@ public class EnvoyConformanceTest {
       upstream.close();
       runner.close();
     }
+  }
+
+  @Test
+  void dockerComposeAndDocsMatchDefaultEnvoyVersion() throws Exception {
+    EnvoyVersions.EnvoyVersionManifest manifest = EnvoyVersions.load();
+    String defaultVersion = manifest.defaultVersion;
+    assertNotNull(defaultVersion);
+
+    String compose =
+        new String(Files.readAllBytes(Paths.get("docker-compose.yaml")), StandardCharsets.UTF_8);
+    assertTrue(
+        compose.contains("envoyproxy/envoy:${ENVOY_VERSION:-" + defaultVersion + "}"), compose);
+
+    String conformanceDoc =
+        new String(Files.readAllBytes(Paths.get("CONFORMANCE.md")), StandardCharsets.UTF_8);
+    assertTrue(
+        conformanceDoc.contains("envoyproxy/envoy:${ENVOY_VERSION:-" + defaultVersion + "}"),
+        "CONFORMANCE.md Compose image default out of sync");
+    assertTrue(
+        conformanceDoc.contains("ENVOY_VERSION=" + defaultVersion),
+        "CONFORMANCE.md ENVOY_VERSION example out of sync");
+
+    String justfile = new String(Files.readAllBytes(Paths.get("justfile")), StandardCharsets.UTF_8);
+    assertTrue(
+        justfile.contains("conformance-version version=\"" + defaultVersion + "\""),
+        "justfile conformance-version default out of sync");
+  }
+
+  @Test
+  void syncHelpersRewriteComposeDocsAndJustfile() {
+    EnvoyVersions.EnvoyVersionManifest manifest = new EnvoyVersions.EnvoyVersionManifest();
+    manifest.defaultVersion = "v1.40-latest";
+    manifest.supported =
+        Arrays.asList("v1.37-latest", "v1.38-latest", "v1.39-latest", "v1.40-latest");
+
+    String oldCompose = "  envoy:\n    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}\n";
+    String updatedCompose = EnvoyVersions.syncDockerComposeYaml(oldCompose, manifest);
+    assertEquals(
+        "  envoy:\n    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}\n", updatedCompose);
+    assertEquals(updatedCompose, EnvoyVersions.syncDockerComposeYaml(updatedCompose, manifest));
+
+    String oldDoc =
+        "| Routine CI Envoy | `envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}` | note |\n"
+            + "| Multi-Version Matrix | `v1.35` – `v1.38` + `dev` | notes |\n"
+            + "Run (defaults to `ENVOY_VERSION=v1.26-latest`):\n";
+    String updatedDoc = EnvoyVersions.syncConformanceDoc(oldDoc, manifest);
+    assertEquals(
+        "| Routine CI Envoy | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | note |\n"
+            + "| Multi-Version Matrix | `v1.37` – `v1.40` + `dev` | notes |\n"
+            + "Run (defaults to `ENVOY_VERSION=v1.40-latest`):\n",
+        updatedDoc);
+    assertEquals(updatedDoc, EnvoyVersions.syncConformanceDoc(updatedDoc, manifest));
+
+    String oldJust = "conformance-version version=\"v1.26-latest\" *flags:\n";
+    String updatedJust = EnvoyVersions.syncJustfile(oldJust, manifest);
+    assertEquals("conformance-version version=\"v1.40-latest\" *flags:\n", updatedJust);
+    assertEquals(updatedJust, EnvoyVersions.syncJustfile(updatedJust, manifest));
   }
 }
