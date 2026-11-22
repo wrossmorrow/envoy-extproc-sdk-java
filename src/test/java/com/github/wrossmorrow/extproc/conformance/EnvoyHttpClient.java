@@ -126,6 +126,15 @@ public class EnvoyHttpClient {
   }
 
   public Response sendH2c(String method, String path, Map<String, String> headers, String body) {
+    return sendH2c(method, path, headers, body, null);
+  }
+
+  public Response sendH2c(
+      String method,
+      String path,
+      Map<String, String> headers,
+      String body,
+      Map<String, String> trailers) {
     Response response = new Response();
     EventLoopGroup group = new NioEventLoopGroup(1);
     try {
@@ -196,7 +205,15 @@ public class EnvoyHttpClient {
           }
         }
       }
-      if (payload.length > 0) {
+      boolean hasTrailers = trailers != null && !trailers.isEmpty();
+      if (hasTrailers) {
+        for (Map.Entry<String, String> t : trailers.entrySet()) {
+          if (t.getKey() != null && t.getValue() != null) {
+            req.trailingHeaders().set(t.getKey(), t.getValue());
+          }
+        }
+      }
+      if (payload.length > 0 && !hasTrailers) {
         req.headers().set(HttpHeaderNames.CONTENT_LENGTH, payload.length);
       }
       stream.writeAndFlush(req).sync();

@@ -4,7 +4,9 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse;
+import build.buf.gen.envoy.service.ext_proc.v3.HttpBody;
 import build.buf.gen.envoy.service.ext_proc.v3.HttpHeaders;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
@@ -232,5 +234,54 @@ class ExternalProcessorErrorFlowTest {
 
     assertEquals(1, responseObserver.errors.size());
     assertEquals(0, responseObserver.completedCount.get());
+  }
+
+  @Test
+  void modeOverridePropagatesOnHeaderResponsesAndBodyErrorContinues() {
+    ErroringRequestProcessor processor =
+        new ErroringRequestProcessor(new ProcessingOptions()) {
+          @Override
+          public void processRequestHeaders(RequestContext ctx, Map<String, String> headers) {
+            ctx.overrideMode(
+                new ModeOverride()
+                    .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+                    .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED));
+          }
+
+          @Override
+          public void processRequestBody(RequestContext ctx, String body) {
+            ctx.overrideMode(
+                new ModeOverride().setResponseBodyMode(ModeOverride.BodySendMode.BUFFERED));
+          }
+        };
+    ExternalProcessor externalProcessor = new ExternalProcessor(processor, null);
+    FakeResponseObserver responseObserver = new FakeResponseObserver();
+    StreamObserver<ProcessingRequest> serverObserver = externalProcessor.process(responseObserver);
+
+    serverObserver.onNext(requestHeadersRequest());
+    assertEquals(1, responseObserver.sent.size());
+    ProcessingResponse hdrResp = responseObserver.sent.get(0);
+    assertTrue(hdrResp.hasModeOverride());
+    assertEquals(
+        ProcessingMode.BodySendMode.BUFFERED, hdrResp.getModeOverride().getRequestBodyMode());
+
+    serverObserver.onNext(
+        ProcessingRequest.newBuilder()
+            .setRequestBody(HttpBody.newBuilder().setEndOfStream(true).build())
+            .build());
+    assertEquals(2, responseObserver.sent.size());
+    ProcessingResponse bodyResp = responseObserver.sent.get(1);
+    assertEquals(ProcessingResponse.ResponseCase.REQUEST_BODY, bodyResp.getResponseCase());
+    assertFalse(bodyResp.hasModeOverride());
+    assertEquals(1, processor.errorHandlerCalls.get());
+    assertEquals(RequestCase.REQUEST_BODY, processor.lastPhase);
+    assertTrue(processor.lastError instanceof IllegalStateException);
+    assertEquals(1, externalProcessor.metrics.phaseErrors.get());
+    assertEquals(1, externalProcessor.metrics.totalEmptyResponses.get());
+    assertTrue(responseObserver.errors.isEmpty());
+
+    serverObserver.onCompleted();
+    assertEquals(1, responseObserver.completedCount.get());
+    assertEquals(1, externalProcessor.metrics.erroredStreams.get());
   }
 }

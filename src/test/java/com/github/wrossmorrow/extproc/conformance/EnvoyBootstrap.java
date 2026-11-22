@@ -57,6 +57,9 @@ public class EnvoyBootstrap {
   public static final String EXT_PROC_CHAIN_FIRST_FILTER_NAME = "extproc_chain_first";
   public static final String EXT_PROC_CHAIN_SECOND_FILTER_NAME = "extproc_chain_second";
   public static final String EXT_PROC_OBSERVABILITY_FILTER_NAME = "extproc_observability";
+  public static final String EXT_PROC_MODE_OVERRIDE_FILTER_NAME = "extproc_mode_override";
+  public static final String EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME =
+      "extproc_mode_override_allowlist";
 
   public static final String EXT_PROC_CLUSTER_DEFAULT = "extproc_service";
   public static final String EXT_PROC_CLUSTER_ABORT = "extproc_abort_service";
@@ -261,6 +264,20 @@ public class EnvoyBootstrap {
     Route observabilityRoute =
         makeProfileRoute(
             "/profile/observability", disabledDefault, null, EXT_PROC_OBSERVABILITY_FILTER_NAME);
+    Route modeOverrideAllowlistRoute =
+        makeProfileRouteWithMode(
+            "/profile/mode-override-allowlist",
+            disabledDefault,
+            noneProcessingMode(),
+            null,
+            EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME);
+    Route modeOverrideRoute =
+        makeProfileRouteWithMode(
+            "/profile/mode-override",
+            disabledDefault,
+            noneProcessingMode(),
+            null,
+            EXT_PROC_MODE_OVERRIDE_FILTER_NAME);
 
     Route defaultRoute =
         Route.newBuilder()
@@ -301,6 +318,8 @@ public class EnvoyBootstrap {
                                     abortOpenRoute,
                                     chainedRoute,
                                     observabilityRoute,
+                                    modeOverrideAllowlistRoute,
+                                    modeOverrideRoute,
                                     defaultRoute))
                             .build())
                     .build())
@@ -362,6 +381,33 @@ public class EnvoyBootstrap {
                         true,
                         true,
                         bufferedProcessingMode()),
+                    makeExtProcFilter(
+                        EXT_PROC_MODE_OVERRIDE_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        noneProcessingMode(),
+                        true,
+                        null),
+                    makeExtProcFilter(
+                        EXT_PROC_MODE_OVERRIDE_ALLOWLIST_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        false,
+                        millis(5000),
+                        false,
+                        true,
+                        noneProcessingMode(),
+                        true,
+                        Collections.singletonList(
+                            ProcessingMode.newBuilder()
+                                .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+                                .setRequestBodyMode(ProcessingMode.BodySendMode.BUFFERED)
+                                .setResponseBodyMode(ProcessingMode.BodySendMode.NONE)
+                                .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                                .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+                                .build())),
                     HttpFilter.newBuilder()
                         .setName("envoy.filters.http.router")
                         .setTypedConfig(Any.pack(Router.getDefaultInstance()))
@@ -400,6 +446,17 @@ public class EnvoyBootstrap {
         .build();
   }
 
+  private static ProcessingMode noneProcessingMode() {
+    return ProcessingMode.newBuilder()
+        .setRequestHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setResponseHeaderMode(ProcessingMode.HeaderSendMode.SEND)
+        .setRequestBodyMode(ProcessingMode.BodySendMode.NONE)
+        .setResponseBodyMode(ProcessingMode.BodySendMode.NONE)
+        .setRequestTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .setResponseTrailerMode(ProcessingMode.HeaderSendMode.SKIP)
+        .build();
+  }
+
   private static HttpFilter makeExtProcFilter(
       String name,
       String clusterName,
@@ -408,7 +465,29 @@ public class EnvoyBootstrap {
       boolean observability,
       boolean disabledByDefault,
       ProcessingMode mode) {
-    ExternalProcessor cfg =
+    return makeExtProcFilter(
+        name,
+        clusterName,
+        failureModeAllow,
+        messageTimeout,
+        observability,
+        disabledByDefault,
+        mode,
+        false,
+        null);
+  }
+
+  private static HttpFilter makeExtProcFilter(
+      String name,
+      String clusterName,
+      boolean failureModeAllow,
+      Duration messageTimeout,
+      boolean observability,
+      boolean disabledByDefault,
+      ProcessingMode mode,
+      boolean allowModeOverride,
+      Iterable<ProcessingMode> allowedOverrideModes) {
+    ExternalProcessor.Builder cfg =
         ExternalProcessor.newBuilder()
             .setGrpcService(
                 GrpcService.newBuilder()
@@ -420,12 +499,17 @@ public class EnvoyBootstrap {
             .setMessageTimeout(messageTimeout)
             .setMutationRules(
                 HeaderMutationRules.newBuilder().setAllowAllRouting(BoolValue.of(true)).build())
-            .setProcessingMode(mode)
-            .build();
+            .setProcessingMode(mode);
+    if (allowModeOverride) {
+      cfg.setAllowModeOverride(true);
+    }
+    if (allowedOverrideModes != null) {
+      cfg.addAllAllowedOverrideModes(allowedOverrideModes);
+    }
     return HttpFilter.newBuilder()
         .setName(name)
         .setDisabled(disabledByDefault)
-        .setTypedConfig(Any.pack(cfg))
+        .setTypedConfig(Any.pack(cfg.build()))
         .build();
   }
 
@@ -447,12 +531,22 @@ public class EnvoyBootstrap {
 
   private static Route makeProfileRoute(
       String prefix, Any disabledDefault, Boolean failureModeAllow, String... enableFilters) {
+    return makeProfileRouteWithMode(
+        prefix, disabledDefault, bufferedProcessingMode(), failureModeAllow, enableFilters);
+  }
+
+  private static Route makeProfileRouteWithMode(
+      String prefix,
+      Any disabledDefault,
+      ProcessingMode mode,
+      Boolean failureModeAllow,
+      String... enableFilters) {
     Route.Builder route =
         Route.newBuilder()
             .setMatch(RouteMatch.newBuilder().setPrefix(prefix).build())
             .setRoute(RouteAction.newBuilder().setCluster(UPSTREAM_PRIMARY).build())
             .putTypedPerFilterConfig(EXT_PROC_FILTER_NAME, disabledDefault);
-    Any enableAny = makeOverridesAny(bufferedProcessingMode(), failureModeAllow);
+    Any enableAny = makeOverridesAny(mode, failureModeAllow);
     for (String f : enableFilters) {
       route.putTypedPerFilterConfig(f, enableAny);
     }

@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
 import build.buf.gen.envoy.config.core.v3.HeaderValueOption;
+import build.buf.gen.envoy.extensions.filters.http.ext_proc.v3.ProcessingMode;
 import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
@@ -659,5 +660,128 @@ class ContextTest {
               + ho.getAppendAction().toString());
     }
     return out;
+  }
+
+  @Test
+  void modeOverrideDefaultsAndConversion() {
+    ModeOverride override = new ModeOverride();
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, override.responseHeaderMode);
+    assertEquals(ModeOverride.BodySendMode.NONE, override.requestBodyMode);
+    assertEquals(ModeOverride.BodySendMode.NONE, override.responseBodyMode);
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, override.requestTrailerMode);
+    assertEquals(ModeOverride.HeaderSendMode.DEFAULT, override.responseTrailerMode);
+
+    ProcessingMode proto =
+        override
+            .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+            .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED)
+            .setResponseBodyMode(ModeOverride.BodySendMode.STREAMED)
+            .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
+            .setResponseTrailerMode(ModeOverride.HeaderSendMode.SEND)
+            .toEnvoyProcessingMode();
+    assertEquals(ProcessingMode.HeaderSendMode.SEND, proto.getResponseHeaderMode());
+    assertEquals(ProcessingMode.BodySendMode.BUFFERED, proto.getRequestBodyMode());
+    assertEquals(ProcessingMode.BodySendMode.STREAMED, proto.getResponseBodyMode());
+    assertEquals(ProcessingMode.HeaderSendMode.SKIP, proto.getRequestTrailerMode());
+    assertEquals(ProcessingMode.HeaderSendMode.SEND, proto.getResponseTrailerMode());
+
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ModeOverride().setResponseHeaderMode(null).toEnvoyProcessingMode());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ModeOverride().setRequestBodyMode(null).toEnvoyProcessingMode());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ModeOverride().setResponseBodyMode(null).toEnvoyProcessingMode());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ModeOverride().setRequestTrailerMode(null).toEnvoyProcessingMode());
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> new ModeOverride().setResponseTrailerMode(null).toEnvoyProcessingMode());
+  }
+
+  @Test
+  void overrideModeClearSkipAndPhaseGating() {
+    RequestContext ctx = new RequestContext();
+    ctx.overrideMode(
+        new ModeOverride()
+            .setResponseHeaderMode(ModeOverride.HeaderSendMode.SKIP)
+            .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED));
+    assertNotNull(ctx.getModeOverride());
+
+    ProcessingResponse reqHdrResp = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(reqHdrResp.hasModeOverride());
+    assertEquals(
+        ProcessingMode.HeaderSendMode.SKIP, reqHdrResp.getModeOverride().getResponseHeaderMode());
+    assertEquals(
+        ProcessingMode.BodySendMode.BUFFERED, reqHdrResp.getModeOverride().getRequestBodyMode());
+
+    // Non-header phases must never attach mode_override, and reset(non-REQUEST_HEADERS) clears it.
+    assertFalse(ctx.getResponse(RequestCase.REQUEST_BODY).hasModeOverride());
+    assertFalse(ctx.getResponse(RequestCase.REQUEST_TRAILERS).hasModeOverride());
+    assertFalse(ctx.getResponse(RequestCase.RESPONSE_BODY).hasModeOverride());
+    assertFalse(ctx.getResponse(RequestCase.RESPONSE_TRAILERS).hasModeOverride());
+
+    ctx.reset(RequestCase.RESPONSE_HEADERS);
+    assertNull(ctx.getModeOverride());
+    assertFalse(ctx.getResponse(RequestCase.RESPONSE_HEADERS).hasModeOverride());
+
+    ctx.skipRemainingPhases();
+    ProcessingResponse respHdrResp = ctx.getResponse(RequestCase.RESPONSE_HEADERS);
+    assertTrue(respHdrResp.hasModeOverride());
+    assertEquals(
+        ProcessingMode.HeaderSendMode.SKIP, respHdrResp.getModeOverride().getResponseHeaderMode());
+    assertEquals(
+        ProcessingMode.BodySendMode.NONE, respHdrResp.getModeOverride().getRequestBodyMode());
+    assertEquals(
+        ProcessingMode.BodySendMode.NONE, respHdrResp.getModeOverride().getResponseBodyMode());
+    assertEquals(
+        ProcessingMode.HeaderSendMode.SKIP, respHdrResp.getModeOverride().getRequestTrailerMode());
+    assertEquals(
+        ProcessingMode.HeaderSendMode.SKIP, respHdrResp.getModeOverride().getResponseTrailerMode());
+
+    ctx.clearModeOverride();
+    assertNull(ctx.getModeOverride());
+    assertFalse(ctx.getResponse(RequestCase.RESPONSE_HEADERS).hasModeOverride());
+
+    // Cancelled responses emit ImmediateResponse without mode_override.
+    ctx.overrideMode(new ModeOverride().setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED));
+    ctx.cancelRequest(403, "denied");
+    ProcessingResponse cancelledResp = ctx.getResponse(RequestCase.REQUEST_HEADERS);
+    assertTrue(cancelledResp.hasImmediateResponse());
+    assertFalse(cancelledResp.hasModeOverride());
+  }
+
+  @Test
+  void overrideModeRejectsNonHeaderPhasesAndInvalidArgumentsWithoutMutating() {
+    RequestCase[] disallowedPhases = {
+      RequestCase.REQUEST_BODY,
+      RequestCase.RESPONSE_BODY,
+      RequestCase.REQUEST_TRAILERS,
+      RequestCase.RESPONSE_TRAILERS
+    };
+    for (RequestCase phase : disallowedPhases) {
+      RequestContext ctx = new RequestContext();
+      ctx.reset(phase);
+      assertThrows(
+          IllegalStateException.class,
+          () ->
+              ctx.overrideMode(
+                  new ModeOverride().setResponseBodyMode(ModeOverride.BodySendMode.BUFFERED)));
+      assertThrows(IllegalStateException.class, ctx::skipRemainingPhases);
+      assertNull(ctx.getModeOverride());
+    }
+
+    RequestContext ctx = new RequestContext();
+    ctx.reset(RequestCase.REQUEST_HEADERS);
+    ctx.overrideMode(new ModeOverride().setRequestBodyMode(ModeOverride.BodySendMode.STREAMED));
+    assertThrows(IllegalArgumentException.class, () -> ctx.overrideMode(null));
+    assertThrows(
+        IllegalArgumentException.class,
+        () -> ctx.overrideMode(new ModeOverride().setRequestBodyMode(null)));
+    assertNotNull(ctx.getModeOverride());
+    assertEquals(ProcessingMode.BodySendMode.STREAMED, ctx.getModeOverride().getRequestBodyMode());
   }
 }

@@ -32,26 +32,26 @@ Outcomes are generated from Envoy conformance runs; see `CONFORMANCE.md`.
 
 | Feature | Category | SDK status | v1.37-latest | v1.38-latest | v1.39-latest | v1.40-latest |
 | --- | --- | --- | --- | --- | --- | --- |
-| headers_send | Headers | supported | not_run | not_run | not_run | pass |
-| headers_skip_request | Headers | supported | not_run | not_run | not_run | pass |
-| headers_representation | Headers | supported | not_run | not_run | not_run | pass |
-| headers_mutations_core | Headers | supported | not_run | not_run | not_run | pass |
-| headers_append_action | Headers | partial | not_run | not_run | not_run | skipped |
-| body_none | Bodies | supported | not_run | not_run | not_run | pass |
-| body_buffered | Bodies | supported | not_run | not_run | not_run | pass |
-| body_streamed | Bodies | supported | not_run | not_run | not_run | pass |
-| body_buffered_partial | Bodies | supported | not_run | not_run | not_run | pass |
-| trailers_http1_and_h2c | Trailers | supported | not_run | not_run | not_run | pass |
-| routing_clear_route_cache | Routing & Local Reply | supported | not_run | not_run | not_run | pass |
-| immediate_response | Routing & Local Reply | partial | not_run | not_run | not_run | pass |
-| per_route_disabled | Routing & Local Reply | supported | not_run | not_run | not_run | pass |
-| downstream_cancellation | Resilience & Chaining | supported | not_run | not_run | not_run | pass |
-| message_timeout_and_fail_open | Resilience & Chaining | supported | not_run | not_run | not_run | pass |
-| processor_failure_modes | Resilience & Chaining | supported | not_run | not_run | not_run | pass |
-| multi_filter_chaining | Resilience & Chaining | supported | not_run | not_run | not_run | pass |
-| observability_mode | Spec Extensions | protocol_gap | not_run | not_run | not_run | skipped |
+| headers_send | Headers | supported | pass | pass | pass | pass |
+| headers_skip_request | Headers | supported | pass | pass | pass | pass |
+| headers_representation | Headers | supported | pass | pass | pass | pass |
+| headers_mutations_core | Headers | supported | pass | pass | pass | pass |
+| headers_append_action | Headers | partial | skipped | skipped | skipped | skipped |
+| body_none | Bodies | supported | pass | pass | pass | pass |
+| body_buffered | Bodies | supported | pass | pass | pass | pass |
+| body_streamed | Bodies | supported | pass | pass | pass | pass |
+| body_buffered_partial | Bodies | supported | pass | pass | pass | pass |
+| trailers_http1_and_h2c | Trailers | supported | pass | pass | pass | pass |
+| routing_clear_route_cache | Routing & Local Reply | supported | pass | pass | pass | pass |
+| immediate_response | Routing & Local Reply | partial | pass | pass | pass | pass |
+| per_route_disabled | Routing & Local Reply | supported | pass | pass | pass | pass |
+| downstream_cancellation | Resilience & Chaining | supported | pass | pass | pass | pass |
+| message_timeout_and_fail_open | Resilience & Chaining | supported | pass | pass | pass | pass |
+| processor_failure_modes | Resilience & Chaining | supported | pass | pass | pass | pass |
+| multi_filter_chaining | Resilience & Chaining | supported | pass | pass | pass | pass |
+| observability_mode | Spec Extensions | protocol_gap | skipped | skipped | skipped | skipped |
 | protocol_config | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
-| mode_override | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
+| mode_override | Spec Extensions | supported | pass | pass | pass | pass |
 | dynamic_metadata_and_attributes | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
 | override_message_timeout | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |
 | continue_and_replace_and_full_duplex | Spec Extensions | unsupported | not_run | not_run | not_run | not_run |

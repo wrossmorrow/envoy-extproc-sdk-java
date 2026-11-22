@@ -107,7 +107,21 @@ In particular, the methods
 RequestContext.continueAndReplace()
 RequestContext.cancelRequest(int status, Map<String, String> headers, String body)
 ```
-effectively signal request phase responses "replacing" the request for upstream processing and "responding immediately" (respectively). If you `replace` you won't get further filter requests (the `proto` comments suggest this as a mechanism to convert a `GET` to a `PUT`/`POST`/`PATCH`). Note also that "cancelling" does not necessarily mean request _failure_; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. `cancelRequest` builds the immediate response headers solely from the `headers` map passed to it (prior header mutations in the same phase are not included) and defaults `status <= 0` to `400`. After you call `cancelRequest` you should no longer modify request data like headers or the body, as this method prepares the response. 
+effectively signal request phase responses "replacing" the request for upstream processing and "responding immediately" (respectively). If you `replace` you won't get further filter requests (the `proto` comments suggest this as a mechanism to convert a `GET` to a `PUT`/`POST`/`PATCH`). Note also that "cancelling" does not necessarily mean request _failure_; just "we know the response now, and don't need to process further". See the [echo](#echo) example for "OK" (200) responses from cancelling. `cancelRequest` builds the immediate response headers solely from the `headers` map passed to it (prior header mutations in the same phase are not included) and defaults `status <= 0` to `400`. After you call `cancelRequest` you should no longer modify request data like headers or the body, as this method prepares the response.
+
+### Dynamic Mode Override
+
+When `allow_mode_override: true` is configured on Envoy's ext_proc filter, processors can adjust the stream's processing mode dynamically during `processRequestHeaders` or `processResponseHeaders` via `ModeOverride` and `RequestContext`:
+```java
+ctx.overrideMode(
+    new ModeOverride()
+        .setResponseHeaderMode(ModeOverride.HeaderSendMode.SEND)
+        .setRequestBodyMode(ModeOverride.BodySendMode.BUFFERED)
+        .setResponseBodyMode(ModeOverride.BodySendMode.NONE)
+        .setRequestTrailerMode(ModeOverride.HeaderSendMode.SKIP)
+        .setResponseTrailerMode(ModeOverride.HeaderSendMode.SKIP));
+```
+You can also call `ctx.skipRemainingPhases()` to skip all subsequent phases on the stream, or `ctx.clearModeOverride()` to clear a pending override before returning. `mode_override` is only attached to header phase responses when the request is not cancelled, and is reset after each phase. 
 
 ### Modifying Headers
 
@@ -246,7 +260,7 @@ when that occurs.
 
 ### Masker
 
-The `MaskerRequestProcessor` is an example of body modification with `RequestContext.replaceBody`. It examines JSON request bodies (requiring buffered bodies) and masks (with `****` for simplicity) fields with paths matching a static spec. This mimics using edge functionality to protect client-side or server-side data. The masked paths are `maskme` and `mask.me`.
+The `MaskerRequestProcessor` is an example of body modification with `RequestContext.replaceBody` combined with dynamic `mode_override`. Its Envoy filter in `envoy.yaml` enables `allow_mode_override: true` with `request_body_mode: NONE` and `response_body_mode: NONE`; during `processRequestHeaders` and `processResponseHeaders`, the processor inspects `content-type` and opts into `BUFFERED` body processing only for `application/json` payloads while skipping remaining phases otherwise. Masked JSON fields (`maskme` and `mask.me`) are replaced with `****`.
 
 ### Digest
 
