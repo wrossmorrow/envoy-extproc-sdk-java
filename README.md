@@ -2,7 +2,7 @@
 
 ## Statement on AI Use
 
-All commits authored by `wrossmorrow-pi-bot` (or perhaps `flint-agent`) are prepared by an agent using [Recursive's flint](https://huggingface.co/RecursiveSI/flint) and the [pi harness](https://pi.dev/) in a [local sandbox](https://github.com/wrossmorrow/local-flint-pi). If other support is used the commits or PR descriptions should clarify. This setup was, in particular, used to draft from the (hand-written) `0.2.1` release up to a `0.3.0` release including fixes and improvements observed using the `go` SDK during 2024-2026. 
+All commits authored by `wrossmorrow-pi-bot` (or perhaps `flint-agent`) are prepared by an agent using [Recursive's flint](https://huggingface.co/RecursiveSI/flint) and the [pi harness](https://pi.dev/) in a [local sandbox](https://github.com/wrossmorrow/local-flint-pi). If other support is used the commits or PR descriptions should clarify. This setup was, in particular, used to draft from the (hand-written) `0.2.1` release up to a `0.3.0` release including fixes and improvements observed using the `go` SDK during 2024-2026. Bug fixes supplied using Antigravity (Carbon or Hydrogren) for `0.3.1`, extensions for `0.4.0` and `0.5.0`. 
 
 ## Overview
 
