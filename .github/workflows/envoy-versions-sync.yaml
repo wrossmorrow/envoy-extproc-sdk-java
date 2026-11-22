@@ -31,6 +31,11 @@ jobs:
         run: curl -fsSL https://endoflife.date/api/envoy.json -o /tmp/eol-envoy.json
       - name: Sync Envoy version manifest
         run: ./gradlew syncEnvoyVersions
+      - name: Validate envoy.yaml against synced default Envoy version
+        run: |
+          default_envoy=$(jq -r '.default' conformance/envoy-versions.json)
+          docker run --rm -v "$PWD/envoy.yaml:/etc/envoy/envoy.yaml:ro" \
+            "envoyproxy/envoy:${default_envoy}" --mode validate -c /etc/envoy/envoy.yaml
       - name: Upload updated manifest
         uses: actions/upload-artifact@v7
         with:
@@ -43,5 +48,9 @@ jobs:
           title: 'chore: sync envoy version manifest from endoflife.date'
           commit-message: 'chore: sync envoy version manifest from endoflife.date'
           body: |
-            Automated sync of the Envoy version manifest against the endoflife.date API.
-          add-paths: conformance/envoy-versions.json
+            Automated sync of the Envoy version manifest, Compose default, conformance docs, and justfile against the endoflife.date API.
+          add-paths: |
+            conformance/envoy-versions.json
+            docker-compose.yaml
+            CONFORMANCE.md
+            justfile

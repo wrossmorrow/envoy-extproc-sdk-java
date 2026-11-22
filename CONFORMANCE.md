@@ -15,7 +15,7 @@ Verification in this repository is intentionally split into two tiers:
 | :--- | :--- | :--- |
 | Java Toolchain (`build.gradle`) | `sourceCompatibility = 1.8` | Minimum module version used by the SDK and the conformance harness |
 | Envoy `ext_proc` v3 protobufs (Gradle) | envoy grpc java `1.57.2.1.20230817201313...`, envoy protocolbuffers java `36.2.0.1...` | Compile-time `envoy.service.ext_proc.v3` definitions |
-| Routine CI Envoy ([docker-compose.yaml](docker-compose.yaml)) | `envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}` | Default tag in [docker-compose.yaml](docker-compose.yaml); override with `ENVOY_VERSION` |
+| Routine CI Envoy ([docker-compose.yaml](docker-compose.yaml)) | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | Default tag in [docker-compose.yaml](docker-compose.yaml), synced with `default` in [conformance/envoy-versions.json](conformance/envoy-versions.json); override with `ENVOY_VERSION` |
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
@@ -66,7 +66,7 @@ Run the routine unit and stream-fake test suite (no Docker required):
 just test
 ```
 
-Run the routine Docker Compose integration suite (defaults to `ENVOY_VERSION=v1.26-latest`):
+Run the routine Docker Compose integration suite (defaults to `ENVOY_VERSION=v1.40-latest`):
 
 ```sh
 just integration-test
