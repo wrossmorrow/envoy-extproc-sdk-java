@@ -167,7 +167,7 @@ document, has no metrics, and has drifted behind on contract semantics.
 - **Status (2026-10-27, follow-up):** landed — metrics and the `ProcessingOptions` update/abort options landed earlier; server options + `Serve`/`MustServe` + graceful shutdown + `setMaxConcurrentStreams` landed in this session; JSON/YAML loaders and the `Serve`/`MustServe` tests plus the full graceful-shutdown test matrix landed in the follow-up (see `ExternalProcessorServerTest`).
 
 ### Milestone 4 — Examples, harness, docs
-- Add missing example processors (data, masker, router), update noop/timer/dedup/digest/echo/trivial to upstream semantics, add tester & loadgen parity, refresh `README.md`, update `docker-compose.yaml` property names if options are renamed.
+- Add missing example processors (data, masker, router), update noop/timer/dedup/digest/echo/trivial to upstream semantics, add tester & loadgen parity, refresh `README.md`, update `compose.yaml` property names if options are renamed.
 
 ### Milestone 5 — Release
 - Version bump, migration notes, changelog entry, integration tests (Go-style `test/tester.go` cases) ported to Java, CI alignment.

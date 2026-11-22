@@ -2,7 +2,7 @@
 
 Isolated multi-version Envoy Proxy conformance exercises for `envoy-extproc-sdk-java`.
 
-This module is intentionally separate from the root unit tests and the routine Docker Compose smoke tests in [../docker-compose.yaml](../docker-compose.yaml): routine PR iteration stays small and fast, while conformance exercises are purposefully executed against supported Envoy releases (`v1.37`–`v1.40` plus `dev` canary as configured in [envoy-versions.json](envoy-versions.json)).
+This module is intentionally separate from the root unit tests and the routine Docker Compose smoke tests in [../compose.yaml](../compose.yaml): routine PR iteration stays small and fast, while conformance exercises are purposefully executed against supported Envoy releases (`v1.37`–`v1.40` plus `dev` canary as configured in [envoy-versions.json](envoy-versions.json)).
 
 ## How It Works
 

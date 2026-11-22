@@ -213,7 +213,7 @@ public class EnvoyConformanceTest {
     assertNotNull(defaultVersion);
 
     String compose =
-        new String(Files.readAllBytes(Paths.get("docker-compose.yaml")), StandardCharsets.UTF_8);
+        new String(Files.readAllBytes(Paths.get("compose.yaml")), StandardCharsets.UTF_8);
     assertTrue(
         compose.contains("envoyproxy/envoy:${ENVOY_VERSION:-" + defaultVersion + "}"), compose);
 

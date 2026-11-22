@@ -1,2 +1,6 @@
 *
-!build/libs/extproc*.jar
+!build.gradle
+!settings.gradle
+!gradle
+!gradlew
+!src

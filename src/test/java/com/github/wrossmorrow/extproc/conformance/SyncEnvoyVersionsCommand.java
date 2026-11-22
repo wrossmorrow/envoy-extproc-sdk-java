@@ -30,7 +30,7 @@ public class SyncEnvoyVersionsCommand {
     Path manifestDir = manifestPath.getParent();
     Path repoRoot = manifestDir != null ? manifestDir.getParent() : null;
     if (repoRoot != null) {
-      updateCompose(repoRoot.resolve("docker-compose.yaml"), manifest);
+      updateCompose(repoRoot.resolve("compose.yaml"), manifest);
       updateConformanceDoc(repoRoot.resolve("CONFORMANCE.md"), manifest);
       updateJustfile(repoRoot.resolve("justfile"), manifest);
     }

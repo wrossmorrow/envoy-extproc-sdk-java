@@ -51,6 +51,6 @@ jobs:
             Automated sync of the Envoy version manifest, Compose default, conformance docs, and justfile against the endoflife.date API.
           add-paths: |
             conformance/envoy-versions.json
-            docker-compose.yaml
+            compose.yaml
             CONFORMANCE.md
             justfile

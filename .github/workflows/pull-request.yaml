@@ -53,13 +53,6 @@ jobs:
         with:
           name: test-reports-jdk${{ matrix.java }}
           path: build/reports/tests/
-      - name: Upload jar
-        if: matrix.java == '17'
-        uses: actions/upload-artifact@v7
-        with:
-          name: jar
-          path: build/libs/*.jar
-          retention-days: 3
 
   containerize:
     name: Container build (no push)
@@ -67,10 +60,6 @@ jobs:
     needs: test
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/download-artifact@v8
-        with:
-          name: jar
-          path: build/libs
       - uses: docker/setup-buildx-action@v4
       - name: Build image
         uses: docker/build-push-action@v7

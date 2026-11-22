@@ -8,7 +8,7 @@ This document outlines a path for expanding `envoy-extproc-sdk-java` from single
 
 Everyday development and pull-request validation have different priorities from multi-version Envoy compatibility verification:
 
-- **Routine tests** must remain fast, small, and deterministic. This covers the Java unit and stream-fake tests (`./gradlew test`), static checks (`./gradlew check`), and the compact single-version integration smoke suite in [docker-compose.yaml](../docker-compose.yaml) run by [.github/workflows/pull-request.yaml](../.github/workflows/pull-request.yaml).
+- **Routine tests** must remain fast, small, and deterministic. This covers the Java unit and stream-fake tests (`./gradlew test`), static checks (`./gradlew check`), and the compact single-version integration smoke suite in [compose.yaml](../compose.yaml) run by [.github/workflows/pull-request.yaml](../.github/workflows/pull-request.yaml).
 - **Conformance and feature-extension exercises** should live separately from routine tests and be **purposefully executed**. Multi-version Envoy container matrices, processing-mode permutations, HTTP/2 and trailer exercises, and protocol feature probes are heavier and should not slow down everyday commits.
 
 Concretely, conformance exercises belong in an isolated top-level `conformance/` directory with:
@@ -23,7 +23,7 @@ Concretely, conformance exercises belong in an isolated top-level `conformance/`
 
 The repository already has solid unit coverage over phases, headers, metrics, options, health checks, and stream cancellation, plus a Docker Compose integration stack and gRPC load tests. Several structural locks currently limit conformance coverage:
 
-1. **Pinned, EOL Envoy Version**: Both [docker-compose.yaml](../docker-compose.yaml) and [Dockerfile](../Dockerfile) default to `envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}`. Under Envoy's 12-month release lifecycle, older releases are end-of-life; the active supported minor releases as of late 2026 are `v1.37`, `v1.38`, `v1.39`, and `v1.40`. CI in [.github/workflows/pull-request.yaml](../.github/workflows/pull-request.yaml) tests only that single default tag.
+1. **Pinned, EOL Envoy Version**: Both [compose.yaml](../compose.yaml) and [Dockerfile](../Dockerfile) default to `envoyproxy/envoy:${ENVOY_VERSION:-v1.26-latest}`. Under Envoy's 12-month release lifecycle, older releases are end-of-life; the active supported minor releases as of late 2026 are `v1.37`, `v1.38`, `v1.39`, and `v1.40`. CI in [.github/workflows/pull-request.yaml](../.github/workflows/pull-request.yaml) tests only that single default tag.
 2. **Why `ext_proc` v3 Backwards Compatibility Is Necessary but Not Sufficient**: Envoy's `envoy.service.ext_proc.v3` protobuf contract guarantees wire compatibility, which keeps baseline SDK framing intact across releases. However, Envoy runtime behavior on existing fields still shifts across minor versions—for example, Envoy moving from `HeaderValue.value` to `HeaderValue.raw_value`, stricter `content-length` matching on `BUFFERED` body mutations, and mid-stream reset or cancellation timing edge cases.
 3. **Single `ProcessingMode` Configuration**: The existing harness and integration stacks configure only one static mode over HTTP/1.1.
 4. **Action-in-Body Test Coupling**: The harness's tester decodes phase-tagged JSON request bodies to decide what mutations to apply. That design cannot easily exercise `GET` or bodyless requests, `request_body_mode: NONE`, non-JSON or binary payloads, multi-chunk `STREAMED` body processing, or `request_header_mode: SKIP`.
