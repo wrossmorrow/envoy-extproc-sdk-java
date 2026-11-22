@@ -1,0 +1,138 @@
+services:
+
+  # envoy, configured as with envoy.yaml to use extprocs
+  envoy:
+    image: envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}
+    ports:
+      - "8080:8000"
+      - "9901:9901"
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    # turn on logging as needed; can be _very_ noisy otherwise esp. with trace
+    logging:
+      driver: none
+
+  # upstream "echo" server
+  upstream:
+    hostname: upstream
+    image: ghcr.io/wrossmorrow/simple-echo-server:${ECHO_SERVER_VERSION:-main}
+    command:
+      - -port=8000
+      - -name=upstream
+    ports:
+      - '8000:8000'
+    environment:
+      - LOG_LEVEL=info
+
+  # extprocs
+  noop:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.NoOpRequestProcessor
+    restart: always
+  trivial:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.TrivialRequestProcessor
+    restart: always
+  timer:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.TimerRequestProcessor
+    restart: always
+  throwing:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.ThrowingRequestProcessor
+    restart: always
+  digest:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.DigestRequestProcessor
+    restart: always
+  dedup:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.DedupRequestProcessor
+    restart: always
+  masker:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.MaskerRequestProcessor
+    restart: always
+  data:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.DataRequestProcessor
+    restart: always
+  router:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.RouterRequestProcessor
+    restart: always
+  echo:
+    image: ghcr.io/wrossmorrow/envoy-extproc-sdk-java:${IMAGE_TAG:-local}
+    depends_on:
+      - noop
+    environment:
+      JDK_JAVA_OPTIONS: >-
+        -Dextproc.logs.phases=true
+        -Dextproc.upstream.headers.duration=true
+        -Dextproc.downstream.headers.duration=true
+        -Dextproc.class=com.github.wrossmorrow.extproc.processors.EchoRequestProcessor
+    restart: always

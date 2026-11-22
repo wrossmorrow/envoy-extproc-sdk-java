@@ -221,9 +221,7 @@ public class EnvoyVersions {
   private static final Pattern JUSTFILE_VERSION_PATTERN =
       Pattern.compile("conformance-version version=\"[^\"]+\"");
 
-  /**
-   * Updates {@code docker-compose.yaml} default {@code ENVOY_VERSION} tag to match the manifest.
-   */
+  /** Updates {@code compose.yaml} default {@code ENVOY_VERSION} tag to match the manifest. */
   public static String syncDockerComposeYaml(String content, EnvoyVersionManifest manifest) {
     if (content == null
         || manifest == null

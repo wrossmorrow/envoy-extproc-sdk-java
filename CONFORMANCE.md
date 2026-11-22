@@ -4,7 +4,7 @@ This page tracks the Envoy versions and `envoy.service.ext_proc.v3` features sup
 
 Verification in this repository is intentionally split into two tiers:
 
-- **Routine tests**: Fast unit/stream-fake tests (`./gradlew test`) and the compact single-version integration smoke suite in [docker-compose.yaml](docker-compose.yaml) run on every pull request in [.github/workflows/pull-request.yaml](.github/workflows/pull-request.yaml).
+- **Routine tests**: Fast unit/stream-fake tests (`./gradlew test`) and the compact single-version integration smoke suite in [compose.yaml](compose.yaml) run on every pull request in [.github/workflows/pull-request.yaml](.github/workflows/pull-request.yaml).
 - **Purposeful conformance exercises**: Multi-version Envoy compatibility matrices, processing-mode permutations, HTTP/2 and trailer coverage, and new spec-extension probes live in an isolated [conformance/](conformance) suite executed intentionally (on demand, on release tags, on schedule, or on conformance changes via [.github/workflows/conformance.yaml](.github/workflows/conformance.yaml)) rather than blocking every routine commit. See [docs/CONFORMANCE_PLAN.md](docs/CONFORMANCE_PLAN.md) for the full architecture and roadmap.
 
 ---
@@ -15,7 +15,7 @@ Verification in this repository is intentionally split into two tiers:
 | :--- | :--- | :--- |
 | Java Toolchain (`build.gradle`) | `sourceCompatibility = 1.8` | Minimum module version used by the SDK and the conformance harness |
 | Envoy `ext_proc` v3 protobufs (Gradle) | envoy grpc java `1.57.2.1.20230817201313...`, envoy protocolbuffers java `36.2.0.1...` | Compile-time `envoy.service.ext_proc.v3` definitions |
-| Routine CI Envoy ([docker-compose.yaml](docker-compose.yaml)) | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | Default tag in [docker-compose.yaml](docker-compose.yaml), synced with `default` in [conformance/envoy-versions.json](conformance/envoy-versions.json); override with `ENVOY_VERSION` |
+| Routine CI Envoy ([compose.yaml](compose.yaml)) | `envoyproxy/envoy:${ENVOY_VERSION:-v1.40-latest}` | Default tag in [compose.yaml](compose.yaml), synced with `default` in [conformance/envoy-versions.json](conformance/envoy-versions.json); override with `ENVOY_VERSION` |
 | Multi-Version Matrix ([conformance/envoy-versions.json](conformance/envoy-versions.json)) | `v1.37` – `v1.40` + `dev` | Active 12-month supported Envoy minor releases plus `dev` canary |
 
 > [!NOTE]
