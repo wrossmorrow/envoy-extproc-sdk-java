@@ -2,16 +2,10 @@ package com.github.wrossmorrow.extproc;
 
 import build.buf.gen.envoy.config.core.v3.HeaderMap;
 import build.buf.gen.envoy.config.core.v3.HeaderValue;
-import build.buf.gen.envoy.service.ext_proc.v3.BodyResponse;
-import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse;
-import build.buf.gen.envoy.service.ext_proc.v3.CommonResponse.ResponseStatus;
 import build.buf.gen.envoy.service.ext_proc.v3.ExternalProcessorGrpc;
-import build.buf.gen.envoy.service.ext_proc.v3.HeaderMutation;
-import build.buf.gen.envoy.service.ext_proc.v3.HeadersResponse;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingResponse;
-import build.buf.gen.envoy.service.ext_proc.v3.TrailersResponse;
 import io.grpc.Status;
 import io.grpc.StatusRuntimeException;
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus;
@@ -23,6 +17,8 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorImplBase {
@@ -99,30 +95,92 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
     metrics.totalStreams.inc();
     metrics.activeStreams.inc();
 
+    final Instant streamStarted = Instant.now();
+    final AtomicBoolean errored = new AtomicBoolean(false);
+    final AtomicBoolean responseClosed = new AtomicBoolean(false);
+    final AtomicBoolean metricsFinalized = new AtomicBoolean(false);
+    final AtomicReference<Throwable> interimSendErr = new AtomicReference<Throwable>();
+
+    ctx.sendTimeoutOverride =
+        new Consumer<ProcessingResponse>() {
+          @Override
+          public void accept(ProcessingResponse interimResp) {
+            logger.fine(
+                "Sending OverrideMessageTimeout ProcessingResponse during " + ctx.getPhaseName());
+            try {
+              if (responseClosed.get()) {
+                throw Status.CANCELLED
+                    .withDescription("response stream already closed")
+                    .asRuntimeException();
+              }
+              responseObserver.onNext(interimResp);
+            } catch (Throwable sendErr) {
+              interimSendErr.set(sendErr);
+              if (sendErr instanceof RuntimeException) {
+                throw (RuntimeException) sendErr;
+              }
+              throw new RuntimeException(sendErr);
+            }
+          }
+        };
+
     return new StreamObserver<ProcessingRequest>() {
-      final Instant streamStarted = Instant.now();
-      final AtomicBoolean errored = new AtomicBoolean(false);
-      final AtomicBoolean responseClosed = new AtomicBoolean(false);
 
       @Override
       public void onNext(ProcessingRequest request) {
         if (responseClosed.get()) {
           return;
         }
+        interimSendErr.set(null);
+        ProcessingResponse response = null;
+        Throwable phaseErr = null;
         try {
-          ProcessingResponse response = processPhase(request, ctx);
-          // observability mode suppresses the ProcessingResponse entirely; the phase
-          // callbacks, metrics and the abort policy still run inside processPhase /
-          // handlePhaseError
-          if (response != null) {
-            responseObserver.onNext(response);
-            if (ctx.isProcessingComplete() && responseClosed.compareAndSet(false, true)) {
-              responseObserver.onCompleted();
-            }
-          }
+          response = processPhase(request, ctx);
         } catch (Throwable t) {
+          phaseErr = t;
+        }
+        Throwable sendErr = interimSendErr.getAndSet(null);
+        if (sendErr != null) {
+          if (isStreamCancelled(sendErr)) {
+            notifyErrorHandler(ctx, sendErr);
+            logger.fine(
+                "Timeout override send cancelled during "
+                    + ctx.getPhaseName()
+                    + ": "
+                    + sendErr.getMessage());
+            responseClosed.set(true);
+            finalizeStreamMetrics(false);
+            return;
+          }
           errored.set(true);
-          handlePhaseError(ctx, t);
+          metrics.responseSendErrors.inc();
+          logger.severe(
+              "Send OverrideMessageTimeout error during " + ctx.getPhaseName() + ": " + sendErr);
+          notifyErrorHandler(ctx, sendErr);
+          StatusRuntimeException status =
+              Status.UNKNOWN
+                  .withDescription(
+                      "failed to send timeout override to envoy: " + sendErr.getMessage())
+                  .asRuntimeException();
+          if (responseClosed.compareAndSet(false, true)) {
+            responseObserver.onError(status);
+          }
+          finalizeStreamMetrics(true);
+          return;
+        }
+        if (phaseErr != null) {
+          errored.set(true);
+          handlePhaseError(ctx, phaseErr);
+          return;
+        }
+        // observability mode suppresses the ProcessingResponse entirely; the phase
+        // callbacks, metrics and the abort policy still run inside processPhase /
+        // handlePhaseError
+        if (response != null) {
+          responseObserver.onNext(response);
+          if (ctx.isProcessingComplete() && responseClosed.compareAndSet(false, true)) {
+            responseObserver.onCompleted();
+          }
         }
       }
 
@@ -174,6 +232,9 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
        * external-processing durations, and account for errored streams.
        */
       protected void finalizeStreamMetrics(boolean errored) {
+        if (!metricsFinalized.compareAndSet(false, true)) {
+          return;
+        }
         metrics.activeStreams.dec();
         metrics.streamDurationSeconds.observe(
             Duration.between(streamStarted, Instant.now()).toSeconds());
@@ -240,42 +301,7 @@ public class ExternalProcessor extends ExternalProcessorGrpc.ExternalProcessorIm
 
   /** Build an empty (continue) processing response for the given phase; never returns null. */
   protected ProcessingResponse emptyContinueResponse(RequestContext ctx) {
-    final CommonResponse common =
-        CommonResponse.newBuilder().setStatus(ResponseStatus.CONTINUE).build();
-    switch (ctx.getPhase()) {
-      case REQUEST_HEADERS:
-        return ProcessingResponse.newBuilder()
-            .setRequestHeaders(HeadersResponse.newBuilder().setResponse(common).build())
-            .build();
-      case REQUEST_BODY:
-        return ProcessingResponse.newBuilder()
-            .setRequestBody(BodyResponse.newBuilder().setResponse(common).build())
-            .build();
-      case REQUEST_TRAILERS:
-        return ProcessingResponse.newBuilder()
-            .setRequestTrailers(
-                TrailersResponse.newBuilder()
-                    .setHeaderMutation(HeaderMutation.newBuilder().build())
-                    .build())
-            .build();
-      case RESPONSE_HEADERS:
-        return ProcessingResponse.newBuilder()
-            .setResponseHeaders(HeadersResponse.newBuilder().setResponse(common).build())
-            .build();
-      case RESPONSE_BODY:
-        return ProcessingResponse.newBuilder()
-            .setResponseBody(BodyResponse.newBuilder().setResponse(common).build())
-            .build();
-      case RESPONSE_TRAILERS:
-        return ProcessingResponse.newBuilder()
-            .setResponseTrailers(
-                TrailersResponse.newBuilder()
-                    .setHeaderMutation(HeaderMutation.newBuilder().build())
-                    .build())
-            .build();
-      default:
-        throw new RuntimeException("unknown request phase");
-    }
+    return RequestContext.emptyContinueResponse(ctx.getPhase());
   }
 
   protected ProcessingResponse processPhase(ProcessingRequest request, RequestContext ctx) {

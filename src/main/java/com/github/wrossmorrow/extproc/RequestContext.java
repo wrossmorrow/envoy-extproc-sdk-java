@@ -35,6 +35,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Consumer;
 
 public class RequestContext {
 
@@ -133,6 +134,8 @@ public class RequestContext {
   protected Map<String, Any> typedMetadata;
   protected Map<String, Object> attributes;
   protected Struct dynamicMetadata;
+  protected Consumer<ProcessingResponse> sendTimeoutOverride;
+  protected boolean timeoutExtended;
 
   public RequestContext() {
     this("x-request-id");
@@ -181,6 +184,7 @@ public class RequestContext {
     observabilityMode = false;
     modeOverride = null;
     dynamicMetadata = null;
+    timeoutExtended = false;
   }
 
   /** Merges inbound {@code ProcessingRequest.metadata_context} into stream-scoped metadata maps. */
@@ -752,6 +756,91 @@ public class RequestContext {
     nsBuilder.putAllFields(fields);
     rootBuilder.putFields(namespace, Value.newBuilder().setStructValue(nsBuilder.build()).build());
     dynamicMetadata = rootBuilder.build();
+  }
+
+  /**
+   * Builds an empty {@code CONTINUE} processing response for the given request phase; throws {@link
+   * IllegalStateException} when {@code phase} is unset or unknown.
+   */
+  static ProcessingResponse emptyContinueResponse(RequestCase phase) {
+    if (phase == null) {
+      throw new IllegalStateException("unknown request phase: null");
+    }
+    CommonResponse common = CommonResponse.newBuilder().setStatus(ResponseStatus.CONTINUE).build();
+    switch (phase) {
+      case REQUEST_HEADERS:
+        return ProcessingResponse.newBuilder()
+            .setRequestHeaders(HeadersResponse.newBuilder().setResponse(common).build())
+            .build();
+      case REQUEST_BODY:
+        return ProcessingResponse.newBuilder()
+            .setRequestBody(BodyResponse.newBuilder().setResponse(common).build())
+            .build();
+      case REQUEST_TRAILERS:
+        return ProcessingResponse.newBuilder()
+            .setRequestTrailers(
+                TrailersResponse.newBuilder()
+                    .setHeaderMutation(HeaderMutation.newBuilder().build())
+                    .build())
+            .build();
+      case RESPONSE_HEADERS:
+        return ProcessingResponse.newBuilder()
+            .setResponseHeaders(HeadersResponse.newBuilder().setResponse(common).build())
+            .build();
+      case RESPONSE_BODY:
+        return ProcessingResponse.newBuilder()
+            .setResponseBody(BodyResponse.newBuilder().setResponse(common).build())
+            .build();
+      case RESPONSE_TRAILERS:
+        return ProcessingResponse.newBuilder()
+            .setResponseTrailers(
+                TrailersResponse.newBuilder()
+                    .setHeaderMutation(HeaderMutation.newBuilder().build())
+                    .build())
+            .build();
+      default:
+        throw new IllegalStateException("unknown request phase: " + phase);
+    }
+  }
+
+  /**
+   * Immediately sends an interim {@code ProcessingResponse} asking Envoy to replace the current
+   * phase's {@code message_timeout} timer with {@code timeout} (requires {@code max_message_timeout
+   * >= timeout >= 1ms} on Envoy's ext_proc filter). May be called at most once per phase and is a
+   * no-op when {@link #isObservabilityMode()} is {@code true}.
+   *
+   * <p>Warning: ext_proc sits inline on Envoy's request/response hot path. Extending per-message
+   * timeouts holds downstream connections, Envoy filter state, and any {@code BUFFERED} HTTP bodies
+   * in memory, transmits an additional gRPC frame on the stream, and multiplies concurrent active
+   * streams under load (Little's Law). Reserve this for slow-path operations and size {@link
+   * ServerOptions}, Envoy circuit breakers, and route timeouts accordingly.
+   */
+  public void overrideMessageTimeout(Duration timeout) {
+    if (timeout == null || timeout.compareTo(Duration.ofMillis(1)) < 0) {
+      throw new IllegalArgumentException("override_message_timeout must be >= 1ms, got " + timeout);
+    }
+    if (phase == null || phase == RequestCase.REQUEST_NOT_SET) {
+      throw new IllegalStateException("override_message_timeout requires an active request phase");
+    }
+    if (timeoutExtended) {
+      throw new IllegalStateException("override_message_timeout already sent in current phase");
+    }
+    if (observabilityMode) {
+      timeoutExtended = true;
+      return;
+    }
+    if (sendTimeoutOverride == null) {
+      throw new IllegalStateException("override_message_timeout requires an active gRPC stream");
+    }
+    com.google.protobuf.Duration protoTimeout =
+        com.google.protobuf.Duration.newBuilder()
+            .setSeconds(timeout.getSeconds())
+            .setNanos(timeout.getNano())
+            .build();
+    ProcessingResponse interim =
+        emptyContinueResponse(phase).toBuilder().setOverrideMessageTimeout(protoTimeout).build();
+    sendTimeoutOverride.accept(interim);
+    timeoutExtended = true;
   }
 
   /** return the response for a given phase; will not return null but may throw */

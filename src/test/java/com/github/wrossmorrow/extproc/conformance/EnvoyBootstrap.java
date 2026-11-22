@@ -66,6 +66,7 @@ public class EnvoyBootstrap {
   public static final String EXT_PROC_META_FIRST_FILTER_NAME = "extproc_meta_first";
   public static final String EXT_PROC_META_SECOND_FILTER_NAME = "extproc_meta_second";
   public static final String EXT_PROC_ATTRIBUTES_FILTER_NAME = "extproc_attributes";
+  public static final String EXT_PROC_TIMEOUT_OVERRIDE_FILTER_NAME = "extproc_timeout_override";
 
   public static final String EXT_PROC_CLUSTER_DEFAULT = "extproc_service";
   public static final String EXT_PROC_CLUSTER_ABORT = "extproc_abort_service";
@@ -308,6 +309,12 @@ public class EnvoyBootstrap {
             .toBuilder()
             .setName("conformance_attributes_route")
             .build();
+    Route timeoutOverrideRoute =
+        makeProfileRoute(
+            "/profile/timeout-override",
+            disabledDefault,
+            null,
+            EXT_PROC_TIMEOUT_OVERRIDE_FILTER_NAME);
 
     Route defaultRoute =
         Route.newBuilder()
@@ -354,6 +361,7 @@ public class EnvoyBootstrap {
                                     sendBodyNoWaitRoute,
                                     metadataChainRoute,
                                     attributesRoute,
+                                    timeoutOverrideRoute,
                                     defaultRoute))
                             .build())
                     .build())
@@ -491,6 +499,12 @@ public class EnvoyBootstrap {
                             "xds.route_name"),
                         Collections.singletonList("response.code"),
                         bufferedProcessingMode()),
+                    makeExtProcFilterWithMaxTimeout(
+                        EXT_PROC_TIMEOUT_OVERRIDE_FILTER_NAME,
+                        EXT_PROC_CLUSTER_DEFAULT,
+                        millis(150),
+                        millis(1500),
+                        bufferedProcessingMode()),
                     HttpFilter.newBuilder()
                         .setName("envoy.filters.http.router")
                         .setTypedConfig(Any.pack(Router.getDefaultInstance()))
@@ -556,6 +570,7 @@ public class EnvoyBootstrap {
     String clusterName;
     boolean failureModeAllow;
     Duration messageTimeout;
+    Duration maxMessageTimeout;
     boolean observability;
     boolean disabledByDefault;
     boolean allowModeOverride;
@@ -655,6 +670,22 @@ public class EnvoyBootstrap {
     return buildExtProcFilterWithOptions(opts);
   }
 
+  private static HttpFilter makeExtProcFilterWithMaxTimeout(
+      String name,
+      String clusterName,
+      Duration messageTimeout,
+      Duration maxMessageTimeout,
+      ProcessingMode mode) {
+    ExtProcFilterOptions opts = new ExtProcFilterOptions();
+    opts.name = name;
+    opts.clusterName = clusterName;
+    opts.messageTimeout = messageTimeout;
+    opts.maxMessageTimeout = maxMessageTimeout;
+    opts.disabledByDefault = true;
+    opts.mode = mode;
+    return buildExtProcFilterWithOptions(opts);
+  }
+
   private static HttpFilter buildExtProcFilterWithOptions(ExtProcFilterOptions opts) {
     ExternalProcessor.Builder cfg =
         ExternalProcessor.newBuilder()
@@ -670,6 +701,9 @@ public class EnvoyBootstrap {
             .setMutationRules(
                 HeaderMutationRules.newBuilder().setAllowAllRouting(BoolValue.of(true)).build())
             .setProcessingMode(opts.mode);
+    if (opts.maxMessageTimeout != null) {
+      cfg.setMaxMessageTimeout(opts.maxMessageTimeout);
+    }
     if (opts.allowModeOverride) {
       cfg.setAllowModeOverride(true);
     }
