@@ -93,6 +93,54 @@ class MaskerRequestProcessorTest {
     assertTrue(replaced.contains("\"maskme\":\"****\""), replaced);
     assertTrue(replaced.contains("\"keep\":\"ok\""), replaced);
     assertFalse(replaced.contains("secret"));
+    assertFalse(replaced.contains("\"mask\""), replaced);
+
+    ProcessingResponse nestedResp =
+        processJsonRequestBody("{\"mask\":{\"me\":\"nested-secret\",\"keep\":1}}");
+    assertTrue(nestedResp.getRequestBody().getResponse().hasBodyMutation());
+    String nestedReplaced =
+        nestedResp.getRequestBody().getResponse().getBodyMutation().getBody().toStringUtf8();
+    assertTrue(nestedReplaced.contains("\"me\":\"****\""), nestedReplaced);
+    assertTrue(nestedReplaced.contains("\"keep\":1"), nestedReplaced);
+    assertFalse(nestedReplaced.contains("nested-secret"));
+    assertFalse(nestedReplaced.contains("\"maskme\""), nestedReplaced);
+  }
+
+  @Test
+  void jsonWithoutMatchingPathsOrNonObjectJsonLeavesBodyUnmodified() {
+    String[] unchangedPayloads = {
+      "{\"hello\":\"world\"}",
+      "{\"mask\":\"plain\"}",
+      "{\"mask\":[1,2]}",
+      "[1,2,3]",
+      "",
+      "{not-json"
+    };
+    for (String payload : unchangedPayloads) {
+      ProcessingResponse bodyResp = processJsonRequestBody(payload);
+      assertFalse(bodyResp.hasModeOverride(), payload);
+      assertFalse(
+          bodyResp.getRequestBody().getResponse().hasBodyMutation(),
+          "Expected no body mutation for payload: " + payload);
+    }
+  }
+
+  private static ProcessingResponse processJsonRequestBody(String payload) {
+    MaskerRequestProcessor processor = new MaskerRequestProcessor();
+    ExternalProcessor extProc = new ExternalProcessor(processor, null);
+    RecordingObserver observer = new RecordingObserver();
+    StreamObserver<ProcessingRequest> stream = extProc.process(observer);
+    stream.onNext(requestHeaders("application/json"));
+    stream.onNext(
+        ProcessingRequest.newBuilder()
+            .setRequestBody(
+                HttpBody.newBuilder()
+                    .setBody(ByteString.copyFrom(payload, StandardCharsets.UTF_8))
+                    .setEndOfStream(true)
+                    .build())
+            .build());
+    assertEquals(2, observer.responses.size());
+    return observer.responses.get(1);
   }
 
   @Test
