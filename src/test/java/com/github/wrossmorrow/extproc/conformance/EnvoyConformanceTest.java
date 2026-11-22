@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import build.buf.gen.envoy.service.ext_proc.v3.ProcessingRequest.RequestCase;
+import com.github.wrossmorrow.extproc.ExternalProcessorServer;
 import com.github.wrossmorrow.extproc.RequestContext;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
@@ -151,11 +152,17 @@ public class EnvoyConformanceTest {
   void envoyGatedConformanceExchange() throws Exception {
     UpstreamServer upstream = UpstreamServer.start("primary");
     EnvoyRunner.EnvoyConfig config = new EnvoyRunner.EnvoyConfig();
+    config.upstreamHost = "host.docker.internal";
     config.primaryUpstreamPort = upstream.port();
     config.secondaryUpstreamPort = upstream.port();
     config.extProcPort = 50052;
     config.abortExtProcPort = 50053;
     config.secondaryExtProcPort = 50054;
+    ExternalProcessorServer extProcServer =
+        new ExternalProcessorServer()
+            .builder(config.extProcPort)
+            .addRequestProcessor(ConformanceProcessor.newDefault("conformance"));
+    extProcServer.start();
     EnvoyRunner runner = EnvoyRunner.start(config);
     try {
       EnvoyHttpClient client = new EnvoyHttpClient(runner.proxyUrl(), 5000);
@@ -167,6 +174,11 @@ public class EnvoyConformanceTest {
       runner.assertNoProtocolErrors();
       System.out.println("envoy conformance exchange status=" + response.status);
     } finally {
+      try {
+        extProcServer.stop();
+      } catch (InterruptedException e) {
+        Thread.currentThread().interrupt();
+      }
       upstream.close();
       runner.close();
     }

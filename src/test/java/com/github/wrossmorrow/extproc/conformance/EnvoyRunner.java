@@ -137,7 +137,7 @@ public class EnvoyRunner {
             bootstrapPath + ":/etc/envoy/envoy.yaml",
             image,
             "envoy",
-            "--config-yaml",
+            "--config-path",
             "/etc/envoy/envoy.yaml",
             "--log-level",
             "warn",
@@ -161,7 +161,7 @@ public class EnvoyRunner {
     ProcessBuilder pb =
         new ProcessBuilder(
             System.getenv("ENVOY_BIN"),
-            "--config-yaml",
+            "--config-path",
             bootstrapPath,
             "--log-level",
             "warn",
