@@ -166,30 +166,47 @@ public class MaskerRequestProcessor implements RequestProcessor {
         && contentType.trim().toLowerCase(Locale.ROOT).startsWith("application/json");
   }
 
-  /** Replaces values at the given dot-delimited JSON paths with a masking value. */
+  /**
+   * Replaces values at existing dot-delimited JSON paths with a masking value, returning {@code
+   * null} if the body is not a JSON object or no configured paths matched.
+   */
   protected byte[] maskJson(final List<String> jsonPaths, final byte[] body) {
+    if (jsonPaths == null || jsonPaths.isEmpty() || body == null || body.length == 0) {
+      return null;
+    }
     try {
       final JsonNode root = MAPPER.readTree(body);
-      final ObjectNode object = root.isObject() ? (ObjectNode) root : MAPPER.createObjectNode();
+      if (root == null || !root.isObject()) {
+        return null;
+      }
+      final ObjectNode object = (ObjectNode) root;
+      boolean modified = false;
       for (final String jsonPath : jsonPaths) {
-        final String[] parts = jsonPath.split("\\.");
+        if (jsonPath == null || jsonPath.isEmpty()) {
+          continue;
+        }
+        final String[] parts = jsonPath.split("\\.", -1);
         ObjectNode target = object;
         for (int i = 0; i < parts.length - 1; i++) {
-          JsonNode child = target.get(parts[i]);
+          final JsonNode child = target.get(parts[i]);
           if (child == null || !child.isObject()) {
-            final ObjectNode created = MAPPER.createObjectNode();
-            target.set(parts[i], created);
-            target = created;
-          } else {
-            target = (ObjectNode) child;
+            target = null;
+            break;
+          }
+          target = (ObjectNode) child;
+        }
+        if (target != null) {
+          final String leaf = parts[parts.length - 1];
+          if (target.has(leaf)) {
+            target.set(leaf, new TextNode("****"));
+            modified = true;
           }
         }
-        target.set(parts[parts.length - 1], new TextNode("****"));
       }
-      return MAPPER.writeValueAsBytes(object);
+      return modified ? MAPPER.writeValueAsBytes(object) : null;
     } catch (final Exception e) {
       // leave the body unmasked if it is not parseable JSON
-      return body;
+      return null;
     }
   }
 }
