@@ -1,5 +1,136 @@
 # Migration notes
 
+## v0.5.0 (from v0.4.x)
+
+This release is purely additive on the public API and has no breaking
+source-level changes — existing `RequestProcessor` implementations compile and
+run without modification (note the `BUFFERED` body `content-length` alignment
+described below).
+
+### Dynamic processing mode overrides (`mode_override`)
+
+Added per-request dynamic processing mode overrides for `REQUEST_HEADERS` and
+`RESPONSE_HEADERS` phases (requires `allow_mode_override: true` on Envoy's
+`ext_proc` filter):
+
+- Added `ModeOverride`, `ModeOverride.HeaderSendMode` (`DEFAULT`, `SEND`,
+  `SKIP`), `ModeOverride.BodySendMode` (`NONE`, `STREAMED`, `BUFFERED`,
+  `BUFFERED_PARTIAL`, `FULL_DUPLEX_STREAMED`, `GRPC`, plus
+  `BodySendMode.fromEnvoy(ProcessingMode.BodySendMode)`), and
+  `ModeOverride.toEnvoyProcessingMode()`.
+- Added `RequestContext.overrideMode(ModeOverride)`,
+  `RequestContext.clearModeOverride()`, `RequestContext.skipRemainingPhases()`,
+  and `RequestContext.getModeOverride()` (permitted during `REQUEST_HEADERS` /
+  `RESPONSE_HEADERS`, cleared between phases by `reset(...)`, and omitted on
+  `ImmediateResponse`).
+- Updated `MaskerRequestProcessor` and `envoy.yaml` to opt dynamically into
+  `BodySendMode.BUFFERED` only for JSON payloads, and fixed
+  `MaskerRequestProcessor.maskJson` so absent configured paths are never injected
+  into payloads and unmatched or non-object bodies emit no `BodyMutation`.
+- **Envoy notes**: `BodySendMode` has no `DEFAULT` value (`BodySendMode.NONE` is
+  `0`). Additionally, when Envoy configures `allowed_override_modes`, Envoy
+  resolves `DEFAULT` header/trailer fields in `response.mode_override` against
+  the filter's static `processing_mode` before checking the allowlist, so
+  `allowed_override_modes` entries must specify explicit `SEND`/`SKIP` values
+  rather than `DEFAULT`.
+
+### Stream protocol configuration (`protocol_config`)
+
+- Added `ProtocolConfig` (`requestBodyMode`, `responseBodyMode`,
+  `sendBodyWithoutWaitingForHeaderResponse`, `ProtocolConfig.fromProto(...)`)
+  and `RequestContext.getProtocolConfig()`, captured from the first
+  `ProcessingRequest` of each stream (including under
+  `request_header_mode: SKIP`) and retained across all phases of that stream.
+- Added `RequestContext.defaultModeOverride()`, pre-populated with Envoy's
+  configured `requestBodyMode` and `responseBodyMode` from
+  `getProtocolConfig()` so callers overriding a single body direction in
+  `processRequestHeaders` do not zero the other direction to
+  `BodySendMode.NONE` (`0`).
+
+### Dynamic metadata and CEL attributes (`metadata_context`, `dynamic_metadata`, `attributes`)
+
+- **Inbound (`RequestContext`)**: Added stream-accumulated `getMetadata()`
+  (`Map<String, Map<String, Object>>` for
+  `metadata_options.forwarding_namespaces.untyped`), `getTypedMetadata()`
+  (`Map<String, Any>` for `metadata_options.forwarding_namespaces.typed`), and
+  `getAttributes()` (`Map<String, Object>` flattening evaluated
+  `request_attributes` and `response_attributes` from Envoy's
+  `"envoy.filters.http.ext_proc"` attribute map), merged across phases of the
+  stream.
+- **Outbound (`RequestContext`)**: Added per-phase
+  `setDynamicMetadata(String namespace, String key, Object value)`,
+  `setDynamicMetadataNamespace(String namespace, Map<String, ?> values)`
+  (all-or-nothing `protobuf.Struct` validation and conversion),
+  `clearDynamicMetadata()`, and `getDynamicMetadata()`, attached across all 6
+  phase responses as well as `ImmediateResponse` (`cancelRequest`).
+- **Envoy notes**: Returned namespaces are ignored unless listed in
+  `metadata_options.receiving_namespaces.untyped`, and `protobuf.Struct`
+  encodes numeric values as `Double` when read back via `getMetadata()` or
+  `getAttributes()`.
+
+### Per-message timeout overrides (`override_message_timeout`)
+
+- Added `RequestContext.overrideMessageTimeout(Duration timeout)`, which
+  immediately transmits an interim PGV-valid `ProcessingResponse` mid-phase
+  asking Envoy to replace the current phase's `message_timeout` timer
+  (`1ms <= timeout <= max_message_timeout`, at most once per phase, and a safe
+  no-op when `isObservabilityMode()` is `true`).
+- **Operational warning**: `ext_proc` executes inline on Envoy's
+  request/response hot path. Extending per-message timeouts pins downstream
+  streams and any `BUFFERED` bodies in memory, sends an extra gRPC message on
+  the stream, and multiplies concurrent active streams under load
+  (`ServerOptions.maxConcurrentStreams`, Envoy cluster circuit breakers, and
+  route timeouts must be sized accordingly). Envoy ignores overrides unless
+  `max_message_timeout >= timeout` is configured (`0` by default = disabled).
+
+### Whole-body `Content-Length` updates in `BUFFERED` body phases
+
+- `RequestContext.replaceBody(...)` and `RequestContext.clearBody()` now
+  overwrite `content-length` during both header phases and `BUFFERED` body
+  phases (`REQUEST_BODY` / `RESPONSE_BODY`), matching Envoy's `BUFFERED` body
+  handling where headers are held until the buffered body response returns.
+  Under `STREAMED` body mode (where headers have already been sent), use
+  `replaceBodyChunk(...)` / `clearBodyChunk()`, which never touch
+  `content-length`.
+
+## v0.4.0 (from v0.3.x)
+
+This release has no breaking source-level API changes — existing
+`RequestProcessor` implementations compile without modification.
+
+### Observability mode (`observability_mode: true`)
+
+`RequestContext.isObservabilityMode()` exposes
+`ProcessingRequest.observability_mode`. When `true`, processor callbacks run
+and SDK metrics are recorded while `ExternalProcessor` suppresses
+`ProcessingResponse` sends, synthetic response headers (`updateExtProcHeader`,
+`updateDurationHeader`, `downstreamDurationHeader`, `upstreamDurationHeader`),
+empty-continue synthesis on phase errors, and `extproc_empty_responses`
+increments. Bumped `build.buf.gen:envoyproxy_envoy_protocolbuffers_java` to
+`36.2.0.1.20261028205545.5c0f5fe1eee2`.
+
+Note Envoy's `ExternalProcessor.observability_mode` requirement: Envoy only
+delivers body messages in observability mode when the body mode is `STREAMED`,
+`GRPC`, or `NONE` (not `BUFFERED`).
+
+### Header append actions enforced (`addHeader`, `appendHeader`, `updateHeader`)
+
+Envoy's `ext_proc` filter ignores `HeaderValueOption.append_action` and evaluates
+deprecated `HeaderValueOption.append` (defaulting to `false` / overwrite; see
+[`envoyproxy/envoy#48886`](https://github.com/envoyproxy/envoy/issues/48886)),
+which previously caused both `addHeader` and `appendHeader` to overwrite existing
+headers:
+
+- `appendHeader` / `appendHeaders` (`APPEND_IF_EXISTS_OR_ADD`) now set
+  `HeaderValueOption.append = true` so Envoy appends values rather than
+  overwriting (including multi-filter `x-extproc-names` and
+  `x-extproc-duration-ns`).
+- `addHeader` / `addHeaders` (`ADD_IF_ABSENT`) and `OVERWRITE_IF_EXISTS` are
+  resolved against the phase header keys observed on the stream (carried into
+  body phases). Callers that previously called `addHeader` while
+  unintentionally relying on overwriting an existing header should switch to
+  `overwriteHeader`.
+
 ## v0.3.0 (from v0.2.1)
 
 The v0.3.0 line of the Java SDK brings the implementation in line with the
