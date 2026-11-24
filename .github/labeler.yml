@@ -1,13 +1,11 @@
 sdk:
   - changed-files:
       - any-glob-to-any-file:
-          - '!(*Test).java'
           - 'src/main/**'
 
 tests:
   - changed-files:
       - any-glob-to-any-file:
-          - '*Test.java'
           - 'src/test/**'
 
 conformance:
