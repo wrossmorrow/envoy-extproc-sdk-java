@@ -42,7 +42,7 @@ jobs:
           name: envoy-versions-manifest
           path: conformance/envoy-versions.json
       - name: Create or update sync PR
-        uses: peter-evans/create-pull-request@v6
+        uses: peter-evans/create-pull-request@v8
         with:
           branch: envoy-versions-sync
           title: 'chore: sync envoy version manifest from endoflife.date'
