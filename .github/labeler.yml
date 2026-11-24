@@ -1,0 +1,44 @@
+sdk:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '!(*Test).java'
+          - 'src/main/**'
+
+tests:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '*Test.java'
+          - 'src/test/**'
+
+conformance:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'conformance/**'
+          - 'CONFORMANCE.md'
+          - 'docs/CONFORMANCE_PLAN.md'
+
+examples:
+  - changed-files:
+      - any-glob-to-any-file:
+          - 'examples/**'
+
+ci:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '.github/**'
+          - 'justfile'
+
+documentation:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/*.md'
+          - 'docs/**'
+
+dependencies:
+  - changed-files:
+      - any-glob-to-any-file:
+          - '**/build.gradle'
+          - '**/build.gradle.kts'
+          - '**/pom.xml'
+          - '**/settings.gradle'
+          - '**/gradle.properties'
