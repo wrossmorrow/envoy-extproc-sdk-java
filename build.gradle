@@ -1,7 +1,7 @@
 plugins {
   id 'java'
   id 'application'
-  id 'com.google.protobuf' version '0.9.1'
+  id 'com.google.protobuf' version '0.10.1'
   id 'idea'
   id "com.diffplug.spotless" version "6.20.0"
   id 'maven-publish'
@@ -29,7 +29,7 @@ repositories {
 }
 
 def googleJavaFormatVersion = 'v1.17.0'
-def grpcVersion = '1.57.2'
+def grpcVersion = '1.85.1'
 def protobufVersion = '3.22.3'
 def protocVersion = protobufVersion
 
@@ -42,17 +42,17 @@ dependencies {
 
   implementation "com.google.protobuf:protobuf-java-util:${protobufVersion}"
 
-  implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.57.2.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_grpc_java:1.85.1.1.20261028205545.5c0f5fe1eee2'
   implementation 'build.buf.gen:envoyproxy_envoy_protocolbuffers_java:36.2.0.1.20261028205545.5c0f5fe1eee2'
-  implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.0.2.1.20230817201313.e75e636e2bd4'
+  implementation 'build.buf.gen:envoyproxy_envoy_bufbuild_validate-java:1.3.3.2.20261028205545.5c0f5fe1eee2'
 
   runtimeOnly "io.grpc:grpc-netty-shaded:${grpcVersion}"
 
   implementation 'io.prometheus:simpleclient:0.16.0'
   implementation 'io.prometheus:simpleclient_httpserver:0.16.0'
 
-  implementation 'com.fasterxml.jackson.core:jackson-databind:2.15.2'
-  implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.15.2'
+  implementation 'com.fasterxml.jackson.core:jackson-databind:2.23.0'
+  implementation 'com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.23.0'
   
   testImplementation 'org.junit.jupiter:junit-jupiter:5.9.1'
   testImplementation "io.grpc:grpc-testing:${grpcVersion}"
