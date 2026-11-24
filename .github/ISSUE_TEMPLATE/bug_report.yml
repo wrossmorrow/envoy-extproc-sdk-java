@@ -51,10 +51,10 @@ body:
     attributes:
       label: Downstream / upstream protocol
       options:
-        - label: HTTP/1.1
-        - label: HTTP/2 (h2 / h2c)
-        - label: Both / Mixed
-        - label: Unknown
+        - HTTP/1.1
+        - HTTP/2 (h2 / h2c)
+        - Both / Mixed
+        - Unknown
 
   - type: textarea
     id: envoy_config

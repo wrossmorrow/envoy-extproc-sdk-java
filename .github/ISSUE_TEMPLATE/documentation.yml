@@ -7,12 +7,12 @@ body:
     attributes:
       label: Documentation area
       options:
-        - label: README.md
-        - label: Javadoc / API comments
-        - label: Examples (examples/)
-        - label: MIGRATION.md
-        - label: CONFORMANCE.md
-        - label: Other
+        - README.md
+        - Javadoc / API comments
+        - Examples (examples/)
+        - MIGRATION.md
+        - CONFORMANCE.md
+        - Other
     validations:
       required: true
 
